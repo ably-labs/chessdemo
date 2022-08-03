@@ -185,7 +185,6 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	defer log.Println("shutting down")
 	client, err := ably.NewRealtime(
 		ably.WithKey(key),
 		ably.WithClientID(*userName))
