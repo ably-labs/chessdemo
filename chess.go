@@ -15,6 +15,8 @@ import (
 	"syscall"
 )
 
+const resign = "resign"
+
 type msg struct {
 	Move   string `json:"move"`
 	Colour int    `json:"colour"`
@@ -37,7 +39,7 @@ func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
 			game = chess.NewGame(fen)
 		}
 		fmt.Println(m.Move)
-		if m.Move == "resign" {
+		if m.Move == resign {
 			game.Resign(chess.Color(m.Colour))
 			done <- true
 			return
@@ -72,7 +74,7 @@ func readInput(pfx string, r *bufio.Reader) string {
 
 func handleOpponentMove(game *chess.Game, waitCh chan msg) {
 	m := <-waitCh
-	if m.Move == "resign" {
+	if m.Move == resign {
 		game.Resign(chess.Color(m.Colour))
 		return
 	}
@@ -137,7 +139,7 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 		var myMove string
 		for ctx.Err() == nil {
 			myMove = readInput(prompt, userIn)
-			if myMove == "resign" {
+			if myMove == resign {
 				game.Resign(colour)
 				break
 			}
