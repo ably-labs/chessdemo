@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/ably/ably-go/ably"
@@ -14,28 +15,35 @@ import (
 	"syscall"
 )
 
-func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
-	game := chess.NewGame()
+type msg struct {
+	Move   string `json:"move"`
+	Colour int    `json:"colour"`
+	FEN    string `json:"FEN"`
+}
 
+func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
+	var game *chess.Game
 	done := make(chan bool)
+	nMove := 0
 	unsub, err := ch.Subscribe(ctx, name, func(message *ably.Message) {
-		m, ok := message.Data.(string)
-		if !ok {
-			log.Fatalln(message, "message.Data is not a string")
-		}
-		fmt.Println(message.Data)
-		if strings.HasSuffix(m, "resigned") {
-			switch m[0] {
-			case 'w':
-				game.Resign(chess.White)
-			case 'b':
-				game.Resign(chess.Black)
+		nMove++
+		m := decodeMsg(message)
+
+		if nMove == 1 {
+			fen, err := chess.FEN(m.FEN)
+			if err != nil {
+				log.Fatalln(err)
 			}
+			game = chess.NewGame(fen)
+		}
+		fmt.Println(m.Move)
+		if m.Move == "resign" {
+			game.Resign(chess.Color(m.Colour))
 			done <- true
 			return
 		}
 
-		err := game.MoveStr(m)
+		err := game.MoveStr(m.Move)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -62,19 +70,14 @@ func readInput(pfx string, r *bufio.Reader) string {
 	return move
 }
 
-func handleOpponentMove(game *chess.Game, waitCh chan string) {
+func handleOpponentMove(game *chess.Game, waitCh chan msg) {
 	m := <-waitCh
-	if strings.HasSuffix(m, "resigned") {
-		switch m[0] {
-		case 'w':
-			game.Resign(chess.White)
-		case 'b':
-			game.Resign(chess.Black)
-		}
+	if m.Move == "resign" {
+		game.Resign(chess.Color(m.Colour))
 		return
 	}
 
-	err := game.MoveStr(m)
+	err := game.MoveStr(m.Move)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -82,21 +85,29 @@ func handleOpponentMove(game *chess.Game, waitCh chan string) {
 
 }
 
+func decodeMsg(am *ably.Message) msg {
+	var msg msg
+	m, ok := am.Data.(string)
+	if !ok {
+		log.Fatalf("message.Data is not a string, but a %T", am.Data)
+	}
+	err := json.Unmarshal([]byte(m), &msg)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return msg
+}
+
 func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user string, colour chess.Color) {
 	game := chess.NewGame()
-	waitChan := make(chan string)
+	waitChan := make(chan msg)
 	unsub, err := ch.Subscribe(ctx, name, func(message *ably.Message) {
 		if message.ClientID == user {
 			// already process my own move
 			return
 		}
-		m, ok := message.Data.(string)
-		if !ok {
-			log.Fatalln(message, "message.Data is not a string")
-		}
-		fmt.Println(message.Data)
 
-		waitChan <- m
+		waitChan <- decodeMsg(message)
 	})
 	if err != nil {
 		log.Fatalln(err)
@@ -118,12 +129,16 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 		case chess.Black:
 			prompt = fmt.Sprintf("%d: ... ", m)
 		}
+		fen, err := game.Position().MarshalText()
+		if err != nil {
+			log.Fatalln(err)
+		}
+
 		var myMove string
 		for ctx.Err() == nil {
 			myMove = readInput(prompt, userIn)
 			if myMove == "resign" {
 				game.Resign(colour)
-				myMove = colour.String() + " resigned"
 				break
 			}
 			err := game.MoveStr(myMove)
@@ -138,13 +153,20 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 			return
 		}
 		fmt.Println(game.Position().Board().Draw())
-		ch.Publish(ctx, name, myMove)
+		err = ch.Publish(ctx, name, msg{
+			Move:   myMove,
+			Colour: int(colour),
+			FEN:    string(fen),
+		})
+		if err != nil {
+			log.Fatalln(err)
+		}
 		if game.Outcome() != chess.NoOutcome {
 			break
 		}
 		handleOpponentMove(game, waitChan)
 	}
-	fmt.Println(game.Outcome())
+	fmt.Println(game)
 }
 
 func main() {
@@ -183,6 +205,8 @@ func main() {
 
 	channelName := "chess:" + *game
 	channel := client.Channels.Get(channelName)
+	//ably.ChannelWithParams("rewind", "1"))
+
 	players, err := channel.Presence.Get(ctx)
 	if err != nil {
 		log.Fatalln(err)
@@ -194,7 +218,6 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		defer channel.Presence.Leave(ctx, *userName)
 		playGame(ctx, channel, channelName, *userName, chess.White)
 	case 1:
 		fmt.Println("you are playing black against", players[0].ClientID)
@@ -202,7 +225,6 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		defer channel.Presence.Leave(ctx, *userName)
 		playGame(ctx, channel, channelName, *userName, chess.Black)
 
 	default:
