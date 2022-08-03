@@ -39,6 +39,9 @@ func watchGame(ch *ably.RealtimeChannel, name string) {
 			log.Fatalln(err)
 		}
 		fmt.Println(game.Position().Board().Draw())
+		if game.Outcome() != chess.NoOutcome {
+			done <- true
+		}
 	})
 	if err != nil {
 		log.Fatalln(err)
