@@ -22,3 +22,8 @@ If you are the second, you play black.
 Otherwise you are a spectator.
 
 Input can be any move in algebraic notation, or the string `resign`
+
+## Bugs
+- All players require my Abley API Key
+- Presence is often not torn down correctly
+- There is a race condition when we determine the number of players in a game.
