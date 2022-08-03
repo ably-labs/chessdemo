@@ -1,4 +1,4 @@
-module chessdemo
+module github.com/ably/chessdemo
 
 go 1.19
 
