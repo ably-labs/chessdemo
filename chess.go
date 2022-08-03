@@ -9,11 +9,12 @@ import (
 	"github.com/notnil/chess"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 )
 
-func watchGame(ch *ably.RealtimeChannel, name string) {
-	ctx := context.Background()
+func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
 	game := chess.NewGame()
 
 	done := make(chan bool)
@@ -81,8 +82,7 @@ func handleOpponentMove(game *chess.Game, waitCh chan string) {
 
 }
 
-func playGame(ch *ably.RealtimeChannel, name string, user string, colour chess.Color) {
-	ctx := context.Background()
+func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user string, colour chess.Color) {
 	game := chess.NewGame()
 	waitChan := make(chan string)
 	unsub, err := ch.Subscribe(ctx, name, func(message *ably.Message) {
@@ -119,7 +119,7 @@ func playGame(ch *ably.RealtimeChannel, name string, user string, colour chess.C
 			prompt = fmt.Sprintf("%d: ... ", m)
 		}
 		var myMove string
-		for {
+		for ctx.Err() == nil {
 			myMove = readInput(prompt, userIn)
 			if myMove == "resign" {
 				game.Resign(colour)
@@ -133,6 +133,9 @@ func playGame(ch *ably.RealtimeChannel, name string, user string, colour chess.C
 			if err == nil {
 				break
 			}
+		}
+		if ctx.Err() != nil {
+			return
 		}
 		fmt.Println(game.Position().Board().Draw())
 		ch.Publish(ctx, name, myMove)
@@ -156,13 +159,26 @@ func main() {
 	if key == "" {
 		log.Fatalln("you must set ABLY_KEY")
 	}
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	defer log.Println("shutting down")
 	client, err := ably.NewRealtime(
 		ably.WithKey(key),
 		ably.WithClientID(*userName))
 	if err != nil {
 		log.Fatalln(err)
 	}
+	go func() {
+		// TERM or KILL signal should result in a graceful shutdown.
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		s := <-sigs
+		log.Println("Got signal", s, "shutting down.")
+		cancel()
+		client.Close()
+		os.Exit(0)
+	}()
+
 	defer client.Close()
 
 	channelName := "chess:" + *game
@@ -179,7 +195,7 @@ func main() {
 			log.Fatalln(err)
 		}
 		defer channel.Presence.Leave(ctx, *userName)
-		playGame(channel, channelName, *userName, chess.White)
+		playGame(ctx, channel, channelName, *userName, chess.White)
 	case 1:
 		fmt.Println("you are playing black against", players[0].ClientID)
 		err := channel.Presence.Enter(ctx, "black")
@@ -187,14 +203,14 @@ func main() {
 			log.Fatalln(err)
 		}
 		defer channel.Presence.Leave(ctx, *userName)
-		playGame(channel, channelName, *userName, chess.Black)
+		playGame(ctx, channel, channelName, *userName, chess.Black)
 
 	default:
 		fmt.Println("you are a spectator")
 		for _, p := range players {
 			fmt.Println(p.ClientID, p.Data)
 		}
-		watchGame(channel, channelName)
+		watchGame(ctx, channel, channelName)
 		return
 	}
 
