@@ -8,7 +8,7 @@ a simple demo using ably realitime API to transmit chess moves.
 
 ## Installation
 
-`go install github.com/ably/chessdemo@latest`
+`go install github.com/ably-labs/chessdemo@latest`
 
 ## Playing
 
