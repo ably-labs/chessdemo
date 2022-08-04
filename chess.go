@@ -32,11 +32,10 @@ type msg struct {
 	FEN    string `json:"FEN"`
 }
 
-func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
-	var game *chess.Game
+func (a *app) watchGame(ctx context.Context) {
 	done := make(chan bool)
 	nMove := 0
-	unsub, err := ch.Subscribe(ctx, name, func(message *ably.Message) {
+	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
 		nMove++
 		m := decodeMsg(message)
 
@@ -45,21 +44,21 @@ func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
 			if err != nil {
 				log.Fatalln(err)
 			}
-			game = chess.NewGame(fen)
+			a.game = chess.NewGame(fen)
 		}
 		fmt.Println(m.Move)
 		if m.Move == resign {
-			game.Resign(chess.Color(m.Colour))
+			a.game.Resign(chess.Color(m.Colour))
 			done <- true
 			return
 		}
 
-		err := game.MoveStr(m.Move)
+		err := a.game.MoveStr(m.Move)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		fmt.Println(game.Position().Board().Draw())
-		if game.Outcome() != chess.NoOutcome {
+		fmt.Println(a.game.Position().Board().Draw())
+		if a.gameIsOver() {
 			done <- true
 		}
 	})
@@ -68,21 +67,21 @@ func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
 	}
 	defer unsub()
 	<-done
-	fmt.Println(game.Outcome())
+	fmt.Println(a.game.Outcome())
 }
 
-func prompt(moveNo int, colour chess.Color) string {
-	switch colour {
+func (a *app) prompt() string {
+	switch a.colour {
 	case chess.White:
-		return fmt.Sprintf("%d: ", moveNo)
+		return fmt.Sprintf("%d: ", a.moveNo)
 	case chess.Black:
-		return fmt.Sprintf("%d: ... ", moveNo)
+		return fmt.Sprintf("%d: ... ", a.moveNo)
 	}
 	panic("bad colour")
 }
 
-func readInput(moveNo int, colour chess.Color, r *bufio.Reader) string {
-	os.Stdout.WriteString(prompt(moveNo, colour))
+func (a *app) readInput(r *bufio.Reader) string {
+	os.Stdout.WriteString(a.prompt())
 	line, err := r.ReadString('\n')
 	if err != nil {
 		log.Fatalln(err)
@@ -126,16 +125,9 @@ func decodeMsg(am *ably.Message) msg {
 	return msg
 }
 
-func playGame(ctx context.Context, ch *ably.RealtimeChannel, gameID string, userID string, colour chess.Color) {
-	a := app{
-		game:   chess.NewGame(),
-		colour: colour,
-		userID: userID,
-		gameID: gameID,
-		ch:     ch,
-	}
+func (a *app) playGame(ctx context.Context) {
 	waitChan := make(chan msg)
-	unsub, err := ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
+	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
 		if message.ClientID != a.userID {
 			waitChan <- decodeMsg(message)
 		}
@@ -145,7 +137,7 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, gameID string, user
 	}
 	defer unsub()
 
-	if colour == chess.Black {
+	if a.colour == chess.Black {
 		// If we are black, our opponent moves first.
 		handleOpponentMove(ctx, a.game, waitChan)
 	}
@@ -174,7 +166,7 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 
 	var myMove string
 	for ctx.Err() == nil {
-		myMove = readInput(a.moveNo, a.colour, userIn)
+		myMove = a.readInput(userIn)
 		if myMove == resign {
 			a.game.Resign(a.colour)
 			break
@@ -233,39 +225,46 @@ func main() {
 		os.Exit(0)
 	}()
 
+	a := app{
+		game:   chess.NewGame(),
+		userID: *userName,
+		gameID: "chess:" + *game,
+	}
+
 	defer client.Close()
 
-	channelName := "chess:" + *game
-	channel := client.Channels.Get(channelName)
+	a.ch = client.Channels.Get(a.gameID)
 	//ably.ChannelWithParams("rewind", "1"))
 
-	players, err := channel.Presence.Get(ctx)
+	players, err := a.ch.Presence.Get(ctx)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	switch len(players) {
 	case 0:
+		a.colour = chess.White
 		fmt.Println("you are white")
-		err := channel.Presence.Enter(ctx, "white")
+		err := a.ch.Presence.Enter(ctx, a.colour)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		playGame(ctx, channel, channelName, *userName, chess.White)
+		a.playGame(ctx)
 	case 1:
+		a.colour = chess.Black
+
 		fmt.Println("you are playing black against", players[0].ClientID)
-		err := channel.Presence.Enter(ctx, "black")
+		err := a.ch.Presence.Enter(ctx, a.colour)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		playGame(ctx, channel, channelName, *userName, chess.Black)
+		a.playGame(ctx)
 
 	default:
 		fmt.Println("you are a spectator")
 		for _, p := range players {
 			fmt.Println(p.ClientID, p.Data)
 		}
-		watchGame(ctx, channel, channelName)
-		return
+		a.watchGame(ctx)
 	}
 
 }
