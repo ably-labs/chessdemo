@@ -21,15 +21,15 @@ import (
 const resign = "resign"
 
 type app struct {
-	game           *chess.Game
-	colour         chess.Color
-	userID         string
-	oLock          sync.RWMutex
-	opponent       string
-	waitForOppenet chan struct{}
-	gameID         string
-	moveNo         int
-	ch             *ably.RealtimeChannel
+	game            *chess.Game
+	colour          chess.Color
+	userID          string
+	oLock           sync.RWMutex
+	opponent        string
+	waitForOpponent chan struct{}
+	gameID          string
+	moveNo          int
+	ch              *ably.RealtimeChannel
 }
 
 type msg struct {
@@ -145,7 +145,7 @@ func (a *app) playGame(ctx context.Context) {
 	switch a.colour {
 	case chess.White:
 		fmt.Println("Waiting for an opponent to arrive.")
-		<-a.waitForOppenet
+		<-a.waitForOpponent
 		fmt.Println("Your opponent", a.opponent, "is playing black.")
 	}
 	if a.colour == chess.Black {
@@ -253,10 +253,10 @@ func main() {
 	}()
 
 	a := app{
-		game:           chess.NewGame(),
-		userID:         *userName,
-		gameID:         "chess:" + *game,
-		waitForOppenet: make(chan struct{}),
+		game:            chess.NewGame(),
+		userID:          *userName,
+		gameID:          "chess:" + *game,
+		waitForOpponent: make(chan struct{}),
 	}
 
 	defer client.Close()
@@ -279,7 +279,7 @@ func main() {
 			}
 			changed := a.setOppent(message.ClientID)
 			if changed {
-				close(a.waitForOppenet)
+				close(a.waitForOpponent)
 			}
 		case ably.PresenceActionLeave:
 			opponentGone := message.ClientID == a.Oppent()
