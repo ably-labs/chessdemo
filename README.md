@@ -10,6 +10,10 @@ a simple demo using ably realitime API to transmit chess moves.
 
 `go install github.com/ably-labs/chessdemo@latest`
 
+Alternatively, if you don't have Go installed, you can just grab 
+pre-complied executables for your machine from 
+[here](https://github.com/ably-labs/chessdemo/releases).
+
 ## Playing
 
 ```
