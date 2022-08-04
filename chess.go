@@ -146,7 +146,7 @@ func (a *app) playGame(ctx context.Context) {
 	case chess.White:
 		fmt.Println("Waiting for an opponent to arrive.")
 		<-a.waitForOpponent
-		fmt.Println("Your opponent", a.opponent, "is playing black.")
+		fmt.Println("Your opponent", a.Opponent(), "is playing black.")
 	}
 	if a.colour == chess.Black {
 		// If we are black, our opponent moves first.
@@ -215,7 +215,7 @@ func (a *app) setOppent(id string) (changed bool) {
 	return true
 }
 
-func (a *app) Oppent() string {
+func (a *app) Opponent() string {
 	a.oLock.RLock()
 	defer a.oLock.RUnlock()
 	return a.opponent
@@ -264,12 +264,8 @@ func main() {
 	a.ch = client.Channels.Get(a.gameID)
 	//ably.ChannelWithParams("rewind", "1"))
 
-	err = a.ch.Presence.Enter(ctx, a.userID)
-	if err != nil {
-		log.Fatalln(err)
-	}
 	iHaveEntered := make(chan struct{})
-	a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
+	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
 		//log.Println(message)
 		switch message.Action {
 		case ably.PresenceActionEnter:
@@ -282,15 +278,24 @@ func main() {
 				close(a.waitForOpponent)
 			}
 		case ably.PresenceActionLeave:
-			opponentGone := message.ClientID == a.Oppent()
+			opponentGone := message.ClientID == a.Opponent()
 			if opponentGone {
-				log.Println("opponent", a.Oppent(), "has left the game")
+				log.Println("opponent", a.Opponent(), "has left the game")
 				client.Close()
 				cancel()
 				os.Exit(0)
 			}
 		}
 	})
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer cancelSubscription()
+
+	err = a.ch.Presence.Enter(ctx, a.userID)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	// We need to wait until we appear in presence.
 	select {
