@@ -284,7 +284,7 @@ func main() {
 		case ably.PresenceActionLeave:
 			opponentGone := message.ClientID == a.Oppent()
 			if opponentGone {
-				log.Println("oppnent", a.Oppent(), "has left the game")
+				log.Println("opponent", a.Oppent(), "has left the game")
 				client.Close()
 				cancel()
 				os.Exit(0)
