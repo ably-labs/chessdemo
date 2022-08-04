@@ -11,19 +11,25 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 )
 
 const resign = "resign"
 
 type app struct {
-	game   *chess.Game
-	colour chess.Color
-	userID string
-	gameID string
-	moveNo int
-	ch     *ably.RealtimeChannel
+	game           *chess.Game
+	colour         chess.Color
+	userID         string
+	oLock          sync.RWMutex
+	opponent       string
+	waitForOppenet chan struct{}
+	gameID         string
+	moveNo         int
+	ch             *ably.RealtimeChannel
 }
 
 type msg struct {
@@ -136,7 +142,12 @@ func (a *app) playGame(ctx context.Context) {
 		log.Fatalln(err)
 	}
 	defer unsub()
-
+	switch a.colour {
+	case chess.White:
+		fmt.Println("Waiting for an opponent to arrive.")
+		<-a.waitForOppenet
+		fmt.Println("Your opponent", a.opponent, "is playing black.")
+	}
 	if a.colour == chess.Black {
 		// If we are black, our opponent moves first.
 		handleOpponentMove(ctx, a.game, waitChan)
@@ -194,6 +205,22 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 	}
 }
 
+func (a *app) setOppent(id string) (changed bool) {
+	a.oLock.Lock()
+	defer a.oLock.Unlock()
+	if a.opponent != "" {
+		return false
+	}
+	a.opponent = id
+	return true
+}
+
+func (a *app) Oppent() string {
+	a.oLock.RLock()
+	defer a.oLock.RUnlock()
+	return a.opponent
+}
+
 func main() {
 	userName := flag.String("name", "", "your name")
 	game := flag.String("game", "game1", "game name")
@@ -226,9 +253,10 @@ func main() {
 	}()
 
 	a := app{
-		game:   chess.NewGame(),
-		userID: *userName,
-		gameID: "chess:" + *game,
+		game:           chess.NewGame(),
+		userID:         *userName,
+		gameID:         "chess:" + *game,
+		waitForOppenet: make(chan struct{}),
 	}
 
 	defer client.Close()
@@ -236,34 +264,67 @@ func main() {
 	a.ch = client.Channels.Get(a.gameID)
 	//ably.ChannelWithParams("rewind", "1"))
 
+	err = a.ch.Presence.Enter(ctx, a.userID)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	iHaveEntered := make(chan struct{})
+	a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
+		//log.Println(message)
+		switch message.Action {
+		case ably.PresenceActionEnter:
+			if message.ClientID == a.userID {
+				close(iHaveEntered)
+				return
+			}
+			changed := a.setOppent(message.ClientID)
+			if changed {
+				close(a.waitForOppenet)
+			}
+		case ably.PresenceActionLeave:
+			opponentGone := message.ClientID == a.Oppent()
+			if opponentGone {
+				log.Println("oppnent", a.Oppent(), "has left the game")
+				client.Close()
+				cancel()
+				os.Exit(0)
+			}
+		}
+	})
+
+	// We need to wait until we appear in presence.
+	select {
+	case <-iHaveEntered:
+	case <-time.After(time.Second):
+	}
 	players, err := a.ch.Presence.Get(ctx)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	switch len(players) {
-	case 0:
+	sort.Slice(players, func(i, j int) bool {
+		return players[i].Timestamp < players[j].Timestamp
+	})
+
+	switch {
+	case players[0].ClientID == a.userID:
 		a.colour = chess.White
 		fmt.Println("you are white")
-		err := a.ch.Presence.Enter(ctx, a.colour)
 		if err != nil {
 			log.Fatalln(err)
 		}
 		a.playGame(ctx)
-	case 1:
+	case players[1].ClientID == a.userID:
+		a.setOppent(players[0].ClientID)
 		a.colour = chess.Black
-
 		fmt.Println("you are playing black against", players[0].ClientID)
-		err := a.ch.Presence.Enter(ctx, a.colour)
 		if err != nil {
 			log.Fatalln(err)
 		}
 		a.playGame(ctx)
 
 	default:
-		fmt.Println("you are a spectator")
-		for _, p := range players {
-			fmt.Println(p.ClientID, p.Data)
-		}
+		a.setOppent(players[0].ClientID)
+		fmt.Println("you are a spectator:", players[0].ClientID, " v ", players[1].ClientID)
 		a.watchGame(ctx)
 	}
 

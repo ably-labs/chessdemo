@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/ably/ably-go v1.2.8
 	github.com/notnil/chess v1.8.0
+	golang.org/x/exp v0.0.0-20220722155223-a9213eeb770e
 )
 
 require (
