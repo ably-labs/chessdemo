@@ -17,6 +17,15 @@ import (
 
 const resign = "resign"
 
+type app struct {
+	game   *chess.Game
+	colour chess.Color
+	userID string
+	gameID string
+	moveNo int
+	ch     *ably.RealtimeChannel
+}
+
 type msg struct {
 	Move   string `json:"move"`
 	Colour int    `json:"colour"`
@@ -99,6 +108,7 @@ func handleOpponentMove(ctx context.Context, game *chess.Game, waitCh chan msg) 
 	if err != nil {
 		log.Fatalln(err)
 	}
+	fmt.Println(m.Move)
 	fmt.Println(game.Position().Board().Draw())
 
 }
@@ -116,16 +126,19 @@ func decodeMsg(am *ably.Message) msg {
 	return msg
 }
 
-func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user string, colour chess.Color) {
-	game := chess.NewGame()
+func playGame(ctx context.Context, ch *ably.RealtimeChannel, gameID string, userID string, colour chess.Color) {
+	a := app{
+		game:   chess.NewGame(),
+		colour: colour,
+		userID: userID,
+		gameID: gameID,
+		ch:     ch,
+	}
 	waitChan := make(chan msg)
-	unsub, err := ch.Subscribe(ctx, name, func(message *ably.Message) {
-		if message.ClientID == user {
-			// already process my own move
-			return
+	unsub, err := ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
+		if message.ClientID != a.userID {
+			waitChan <- decodeMsg(message)
 		}
-
-		waitChan <- decodeMsg(message)
 	})
 	if err != nil {
 		log.Fatalln(err)
@@ -133,52 +146,60 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 	defer unsub()
 
 	if colour == chess.Black {
-		handleOpponentMove(ctx, game, waitChan)
+		// If we are black, our opponent moves first.
+		handleOpponentMove(ctx, a.game, waitChan)
 	}
 
 	userIn := bufio.NewReader(os.Stdin)
-	m := 0
-	for game.Outcome() == chess.NoOutcome {
-		m++
-		fen, err := game.Position().MarshalText()
-		if err != nil {
-			log.Fatalln(err)
-		}
-
-		var myMove string
-		for ctx.Err() == nil {
-			myMove = readInput(m, colour, userIn)
-			if myMove == resign {
-				game.Resign(colour)
-				break
-			}
-			err := game.MoveStr(myMove)
-			if err == nil {
-				break // the user has entered a legal move
-			}
-			// illegal move, print out an error, and try again
-			fmt.Println(err)
-		}
-		if ctx.Err() != nil {
-			return
-		}
-
-		fmt.Println(game.Position().Board().Draw())
-
-		err = ch.Publish(ctx, name, msg{
-			Move:   myMove,
-			Colour: int(colour),
-			FEN:    string(fen),
-		})
-		if err != nil {
-			log.Fatalln(err)
-		}
-		if game.Outcome() != chess.NoOutcome {
+	for !a.gameIsOver() {
+		a.moveNo++
+		a.handleMyMove(ctx, userIn)
+		if a.gameIsOver() || ctx.Err() != nil {
 			break
 		}
-		handleOpponentMove(ctx, game, waitChan)
+		handleOpponentMove(ctx, a.game, waitChan)
 	}
-	fmt.Println(game)
+	fmt.Println(a.game)
+}
+
+func (a *app) gameIsOver() bool {
+	return a.game.Outcome() != chess.NoOutcome
+}
+
+func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
+	fen, err := a.game.Position().MarshalText()
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	var myMove string
+	for ctx.Err() == nil {
+		myMove = readInput(a.moveNo, a.colour, userIn)
+		if myMove == resign {
+			a.game.Resign(a.colour)
+			break
+		}
+		err := a.game.MoveStr(myMove)
+		if err == nil {
+			break // the user has entered a legal move
+		}
+		// illegal move, print out an error, and try again
+		fmt.Println(err)
+	}
+	if ctx.Err() != nil {
+		return
+	}
+
+	fmt.Println(a.game.Position().Board().Draw())
+
+	err = a.ch.Publish(ctx, a.gameID, msg{
+		Move:   myMove,
+		Colour: int(a.colour),
+		FEN:    string(fen),
+	})
+	if err != nil {
+		log.Fatalln(err)
+	}
 }
 
 func main() {
