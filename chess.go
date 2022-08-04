@@ -62,8 +62,18 @@ func watchGame(ctx context.Context, ch *ably.RealtimeChannel, name string) {
 	fmt.Println(game.Outcome())
 }
 
-func readInput(pfx string, r *bufio.Reader) string {
-	os.Stdout.WriteString(pfx)
+func prompt(moveNo int, colour chess.Color) string {
+	switch colour {
+	case chess.White:
+		return fmt.Sprintf("%d: ", moveNo)
+	case chess.Black:
+		return fmt.Sprintf("%d: ... ", moveNo)
+	}
+	panic("bad colour")
+}
+
+func readInput(moveNo int, colour chess.Color, r *bufio.Reader) string {
+	os.Stdout.WriteString(prompt(moveNo, colour))
 	line, err := r.ReadString('\n')
 	if err != nil {
 		log.Fatalln(err)
@@ -72,8 +82,14 @@ func readInput(pfx string, r *bufio.Reader) string {
 	return move
 }
 
-func handleOpponentMove(game *chess.Game, waitCh chan msg) {
-	m := <-waitCh
+func handleOpponentMove(ctx context.Context, game *chess.Game, waitCh chan msg) {
+	var m msg
+	select {
+	case <-ctx.Done():
+		return
+	case m = <-waitCh:
+		break
+	}
 	if m.Move == resign {
 		game.Resign(chess.Color(m.Colour))
 		return
@@ -117,20 +133,13 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 	defer unsub()
 
 	if colour == chess.Black {
-		handleOpponentMove(game, waitChan)
+		handleOpponentMove(ctx, game, waitChan)
 	}
 
 	userIn := bufio.NewReader(os.Stdin)
 	m := 0
 	for game.Outcome() == chess.NoOutcome {
 		m++
-		var prompt string
-		switch colour {
-		case chess.White:
-			prompt = fmt.Sprintf("%d: ", m)
-		case chess.Black:
-			prompt = fmt.Sprintf("%d: ... ", m)
-		}
 		fen, err := game.Position().MarshalText()
 		if err != nil {
 			log.Fatalln(err)
@@ -138,23 +147,24 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 
 		var myMove string
 		for ctx.Err() == nil {
-			myMove = readInput(prompt, userIn)
+			myMove = readInput(m, colour, userIn)
 			if myMove == resign {
 				game.Resign(colour)
 				break
 			}
 			err := game.MoveStr(myMove)
-			if err != nil {
-				fmt.Println(err)
-			}
 			if err == nil {
-				break
+				break // the user has entered a legal move
 			}
+			// illegal move, print out an error, and try again
+			fmt.Println(err)
 		}
 		if ctx.Err() != nil {
 			return
 		}
+
 		fmt.Println(game.Position().Board().Draw())
+
 		err = ch.Publish(ctx, name, msg{
 			Move:   myMove,
 			Colour: int(colour),
@@ -166,7 +176,7 @@ func playGame(ctx context.Context, ch *ably.RealtimeChannel, name string, user s
 		if game.Outcome() != chess.NoOutcome {
 			break
 		}
-		handleOpponentMove(game, waitChan)
+		handleOpponentMove(ctx, game, waitChan)
 	}
 	fmt.Println(game)
 }
