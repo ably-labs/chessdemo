@@ -38,9 +38,10 @@ type app struct {
 }
 
 type msg struct {
-	Move   string `json:"move"`
-	Colour int    `json:"colour"`
-	FEN    string `json:"FEN"`
+	Move    string `json:"move"`
+	MoveNum int    `json:"move_num"`
+	Colour  int    `json:"colour"`
+	FEN     string `json:"FEN"`
 }
 
 func (a *app) watchGame(ctx context.Context) {
@@ -57,7 +58,6 @@ func (a *app) watchGame(ctx context.Context) {
 			}
 			a.game = chess.NewGame(fen)
 		}
-		fmt.Println(m.Move)
 		if m.Move == resign {
 			a.game.Resign(chess.Color(m.Colour))
 			done <- true
@@ -68,8 +68,12 @@ func (a *app) watchGame(ctx context.Context) {
 		if err != nil {
 			log.Fatalln(err)
 		}
+		a.moveNo = m.MoveNum
+		a.colour = chess.Color(m.Colour)
+
+		fmt.Println(a.prompt(), m.Move)
 		fmt.Println(a.game.Position().Board().Draw())
-		if a.gameIsOver() {
+		if a.gameIsOver(ctx) {
 			done <- true
 		}
 	})
@@ -78,7 +82,7 @@ func (a *app) watchGame(ctx context.Context) {
 	}
 	defer unsub()
 	<-done
-	fmt.Println(a.game.Outcome())
+	fmt.Println(a.game, a.game.Method())
 }
 
 func (a *app) prompt() string {
@@ -163,10 +167,10 @@ func (a *app) playGame(ctx context.Context) {
 	}
 
 	userIn := bufio.NewReader(os.Stdin)
-	for !a.gameIsOver() {
+	for !a.gameIsOver(ctx) {
 		a.moveNo++
 		a.handleMyMove(ctx, userIn)
-		if a.gameIsOver() || ctx.Err() != nil {
+		if a.gameIsOver(ctx) {
 			break
 		}
 		handleOpponentMove(ctx, a.game, waitChan)
@@ -174,7 +178,10 @@ func (a *app) playGame(ctx context.Context) {
 	fmt.Println(a.game, a.game.Method())
 }
 
-func (a *app) gameIsOver() bool {
+func (a *app) gameIsOver(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
 	return a.game.Outcome() != chess.NoOutcome
 }
 
@@ -254,9 +261,10 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 	fmt.Println(a.game.Position().Board().Draw())
 
 	err = a.ch.Publish(ctx, a.gameID, msg{
-		Move:   myMove,
-		Colour: int(a.colour),
-		FEN:    string(fen),
+		Move:    myMove,
+		Colour:  int(a.colour),
+		MoveNum: a.moveNo,
+		FEN:     string(fen),
 	})
 	if err != nil {
 		log.Fatalln(err)
@@ -345,6 +353,7 @@ func main() {
 			opponentGone := message.ClientID == a.Opponent()
 			if opponentGone {
 				log.Println("opponent", a.Opponent(), "has left the game")
+				log.Println(a.game, a.game.Method())
 				client.Close()
 				cancel()
 				os.Exit(0)
