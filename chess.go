@@ -27,6 +27,7 @@ type app struct {
 	userID          string
 	engine          string
 	eng             *uci.Engine
+	engMoveTime     time.Duration
 	isSpectator     bool
 	oLock           sync.RWMutex
 	opponent        string
@@ -215,7 +216,7 @@ func (a *app) moveFromEngine(ctx context.Context) string {
 	enc := chess.AlgebraicNotation{}
 	prevPos := a.game.Position()
 	cmdPos := uci.CmdPosition{Position: prevPos}
-	cmdGo := uci.CmdGo{MoveTime: time.Second / 100}
+	cmdGo := uci.CmdGo{MoveTime: a.engMoveTime}
 	err := a.eng.Run(cmdPos, cmdGo)
 	if err != nil {
 		log.Fatalln(err)
@@ -287,6 +288,7 @@ func main() {
 	flag.StringVar(&a.userID, "name", "", "your name")
 	flag.StringVar(&a.gameID, "game", "game1", "game name")
 	flag.StringVar(&a.engine, "engine", "", "run UCI engine")
+	flag.DurationVar(&a.engMoveTime, "timePerMove", 10*time.Millisecond, "how much time to allow engine to make each move")
 	flag.BoolVar(&a.isSpectator, "watch", false, "watch game")
 	flag.Parse()
 	if a.userID == "" {
