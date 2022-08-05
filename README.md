@@ -25,7 +25,28 @@ If you are the first player in the gameID game, then you play white.
 If you are the second, you play black.
 Otherwise you are a spectator.
 
+You can force yourself to be a spectator by usig the `-watch` flag.
+
 Input can be any move in [algebraic notation](https://en.wikipedia.org/wiki/Algebraic_notation_(chess)), or the string `resign`
+
+## Using a chess engine
+Figuring out good moves can be difficult. So why not use the number-crunching
+power of your computer to do it for you.
+
+To do this, use the `-engine` flag.
+
+
+```
+chessdemo -name myname -game gameId -engine stockfish
+```
+
+You can use [stockfish](https://stockfishchess.org/) (as above) or any UCI compliant chess engine.
+
+To install stockfish on a mac, simply run
+
+```
+brew install stockfish
+```
 
 ## Example Session
 

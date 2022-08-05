@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/ably/ably-go/ably"
 	"github.com/notnil/chess"
+	"github.com/notnil/chess/uci"
 	"log"
 	"os"
 	"os/signal"
@@ -24,6 +25,9 @@ type app struct {
 	game            *chess.Game
 	colour          chess.Color
 	userID          string
+	engine          string
+	eng             *uci.Engine
+	isSpectator     bool
 	oLock           sync.RWMutex
 	opponent        string
 	waitForOpponent chan struct{}
@@ -141,6 +145,10 @@ func (a *app) playGame(ctx context.Context) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	if a.engine != "" {
+		a.startEngine()
+		defer a.stopEngine()
+	}
 	defer unsub()
 	switch a.colour {
 	case chess.White:
@@ -162,11 +170,68 @@ func (a *app) playGame(ctx context.Context) {
 		}
 		handleOpponentMove(ctx, a.game, waitChan)
 	}
-	fmt.Println(a.game)
+	fmt.Println(a.game, a.game.Method())
 }
 
 func (a *app) gameIsOver() bool {
 	return a.game.Outcome() != chess.NoOutcome
+}
+
+func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) string {
+	for ctx.Err() == nil {
+		myMove := a.readInput(userIn)
+		if myMove == resign {
+			a.game.Resign(a.colour)
+			break
+		}
+		err := a.game.MoveStr(myMove)
+		if err == nil {
+			return myMove
+		}
+		// illegal move, print out an error, and try again
+		fmt.Println(err)
+	}
+	return ""
+}
+
+func (a *app) startEngine() {
+	var err error
+	a.eng, err = uci.New(a.engine)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	// initialize uci with new game
+	err = a.eng.Run(uci.CmdUCI, uci.CmdIsReady, uci.CmdUCINewGame)
+	if err != nil {
+		log.Fatalln(err)
+	}
+}
+
+func (a *app) stopEngine() {
+	a.eng.Close()
+}
+
+func (a *app) moveFromEngine(ctx context.Context) string {
+	enc := chess.AlgebraicNotation{}
+	prevPos := a.game.Position()
+	cmdPos := uci.CmdPosition{Position: prevPos}
+	cmdGo := uci.CmdGo{MoveTime: time.Second / 100}
+	err := a.eng.Run(cmdPos, cmdGo)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	move := a.eng.SearchResults().BestMove
+	err = a.game.Move(move)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	moves := a.game.Moves()
+	lastMove := moves[len(moves)-1]
+	moveStr := enc.Encode(prevPos, lastMove)
+
+	fmt.Println(a.prompt(), moveStr)
+	return moveStr
 }
 
 func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
@@ -176,18 +241,10 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 	}
 
 	var myMove string
-	for ctx.Err() == nil {
-		myMove = a.readInput(userIn)
-		if myMove == resign {
-			a.game.Resign(a.colour)
-			break
-		}
-		err := a.game.MoveStr(myMove)
-		if err == nil {
-			break // the user has entered a legal move
-		}
-		// illegal move, print out an error, and try again
-		fmt.Println(err)
+	if a.engine != "" {
+		myMove = a.moveFromEngine(ctx)
+	} else {
+		myMove = a.moveFromReader(ctx, userIn)
 	}
 	if ctx.Err() != nil {
 		return
@@ -222,10 +279,17 @@ func (a *app) Opponent() string {
 }
 
 func main() {
-	userName := flag.String("name", "", "your name")
-	game := flag.String("game", "game1", "game name")
+	log.SetFlags(log.Lshortfile | log.Ltime)
+	a := app{
+		game:            chess.NewGame(),
+		waitForOpponent: make(chan struct{}),
+	}
+	flag.StringVar(&a.userID, "name", "", "your name")
+	flag.StringVar(&a.gameID, "game", "game1", "game name")
+	flag.StringVar(&a.engine, "engine", "", "run UCI engine")
+	flag.BoolVar(&a.isSpectator, "watch", false, "watch game")
 	flag.Parse()
-	if *userName == "" {
+	if a.userID == "" {
 		log.Fatalln("You must provide a -name argument")
 	}
 
@@ -237,7 +301,7 @@ func main() {
 
 	client, err := ably.NewRealtime(
 		ably.WithKey(key),
-		ably.WithClientID(*userName))
+		ably.WithClientID(a.userID))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -252,17 +316,15 @@ func main() {
 		os.Exit(0)
 	}()
 
-	a := app{
-		game:            chess.NewGame(),
-		userID:          *userName,
-		gameID:          "chess:" + *game,
-		waitForOpponent: make(chan struct{}),
-	}
-
 	defer client.Close()
 
 	a.ch = client.Channels.Get(a.gameID)
 	//ably.ChannelWithParams("rewind", "1"))
+
+	if a.isSpectator {
+		a.watchGame(ctx)
+		return
+	}
 
 	iHaveEntered := make(chan struct{})
 	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
@@ -310,10 +372,15 @@ func main() {
 		return players[i].Timestamp < players[j].Timestamp
 	})
 
+	engineText := ""
+	if a.engine != "" {
+		engineText = fmt.Sprintf(" (using %s)", a.engine)
+	}
+
 	switch {
 	case players[0].ClientID == a.userID:
 		a.colour = chess.White
-		fmt.Println("you are white")
+		fmt.Println("you are white" + engineText)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -321,7 +388,7 @@ func main() {
 	case players[1].ClientID == a.userID:
 		a.setOppent(players[0].ClientID)
 		a.colour = chess.Black
-		fmt.Println("you are playing black against", players[0].ClientID)
+		fmt.Println("you are playing black"+engineText+"against", players[0].ClientID)
 		if err != nil {
 			log.Fatalln(err)
 		}
