@@ -287,6 +287,60 @@ func (a *app) Opponent() string {
 	return a.opponent
 }
 
+func (a *app) handlePresenceEvent(message *ably.PresenceMessage, iHaveEntered chan struct{}, client *ably.Realtime, cancel func()) {
+	//log.Println(message)
+	switch message.Action {
+	case ably.PresenceActionEnter:
+		if message.ClientID == a.userID {
+			close(iHaveEntered)
+			return
+		}
+		changed := a.setOppent(message.ClientID)
+		if changed {
+			close(a.waitForOpponent)
+		}
+	case ably.PresenceActionLeave:
+		opponentGone := message.ClientID == a.Opponent()
+		if opponentGone {
+			log.Println("opponent", a.Opponent(), "has left the game")
+			log.Println(a.game, a.game.Method())
+			client.Close()
+			cancel()
+			os.Exit(0)
+		}
+	}
+}
+
+func (a *app) engineText() string {
+	if a.engine == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (using %s)", a.engine)
+}
+
+func (a *app) determineMyColour(ctx context.Context) chess.Color {
+	players, err := a.ch.Presence.Get(ctx)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	sort.Slice(players, func(i, j int) bool {
+		return players[i].Timestamp < players[j].Timestamp
+	})
+
+	switch {
+	case players[0].ClientID == a.userID:
+		a.colour = chess.White
+	case players[1].ClientID == a.userID:
+		a.setOppent(players[0].ClientID)
+		a.colour = chess.Black
+	default:
+		a.colour = chess.NoColor
+		a.setOppent(players[0].ClientID)
+		fmt.Println("You are watching the game:", players[0].ClientID, " v ", players[1].ClientID)
+	}
+	return a.colour
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile | log.Ltime)
 	a := app{
@@ -321,8 +375,12 @@ func main() {
 		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 		s := <-sigs
 		log.Println("Got signal", s, "shutting down.")
-		cancel()
+		fmt.Println(a.game)
 		client.Close()
+		cancel()
+
+		// If we are still running, we are stuck in a blocking read, so force-close.
+		time.Sleep(time.Second)
 		os.Exit(0)
 	}()
 
@@ -338,27 +396,7 @@ func main() {
 
 	iHaveEntered := make(chan struct{})
 	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
-		//log.Println(message)
-		switch message.Action {
-		case ably.PresenceActionEnter:
-			if message.ClientID == a.userID {
-				close(iHaveEntered)
-				return
-			}
-			changed := a.setOppent(message.ClientID)
-			if changed {
-				close(a.waitForOpponent)
-			}
-		case ably.PresenceActionLeave:
-			opponentGone := message.ClientID == a.Opponent()
-			if opponentGone {
-				log.Println("opponent", a.Opponent(), "has left the game")
-				log.Println(a.game, a.game.Method())
-				client.Close()
-				cancel()
-				os.Exit(0)
-			}
-		}
+		a.handlePresenceEvent(message, iHaveEntered, client, cancel)
 	})
 	if err != nil {
 		log.Fatalln(err)
@@ -375,40 +413,15 @@ func main() {
 	case <-iHaveEntered:
 	case <-time.After(time.Second):
 	}
-	players, err := a.ch.Presence.Get(ctx)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	sort.Slice(players, func(i, j int) bool {
-		return players[i].Timestamp < players[j].Timestamp
-	})
 
-	engineText := ""
-	if a.engine != "" {
-		engineText = fmt.Sprintf(" (using %s)", a.engine)
-	}
-
-	switch {
-	case players[0].ClientID == a.userID:
-		a.colour = chess.White
-		fmt.Println("you are white" + engineText)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		a.playGame(ctx)
-	case players[1].ClientID == a.userID:
-		a.setOppent(players[0].ClientID)
-		a.colour = chess.Black
-		fmt.Println("you are playing black"+engineText+"against", players[0].ClientID)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		a.playGame(ctx)
-
-	default:
-		a.setOppent(players[0].ClientID)
-		fmt.Println("you are a spectator:", players[0].ClientID, " v ", players[1].ClientID)
+	colour := a.determineMyColour(ctx)
+	if colour == chess.NoColor {
 		a.watchGame(ctx)
+		return
 	}
-
+	fmt.Println("you are " + a.colour.Name() + a.engineText())
+	if a.Opponent() != "" {
+		fmt.Println("playing against", a.Opponent())
+	}
+	a.playGame(ctx)
 }
