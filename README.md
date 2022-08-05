@@ -121,6 +121,6 @@ g5
 
 
 ## Bugs
-- All players require my Abley API Key
+- All players require my Ably API Key
 - No way to offer or accept a draw
 - clunky user interface
