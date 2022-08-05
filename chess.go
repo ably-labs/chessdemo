@@ -160,8 +160,7 @@ func (a *app) playGame(ctx context.Context) {
 		fmt.Println("Waiting for an opponent to arrive.")
 		<-a.waitForOpponent
 		fmt.Println("Your opponent", a.Opponent(), "is playing black.")
-	}
-	if a.colour == chess.Black {
+	case chess.Black:
 		// If we are black, our opponent moves first.
 		handleOpponentMove(ctx, a.game, waitChan)
 	}
@@ -335,6 +334,7 @@ func (a *app) determineMyColour(ctx context.Context) chess.Color {
 		a.colour = chess.Black
 	default:
 		a.colour = chess.NoColor
+		a.isSpectator = true
 		a.setOppent(players[0].ClientID)
 		fmt.Println("You are watching the game:", players[0].ClientID, " v ", players[1].ClientID)
 	}
