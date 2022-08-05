@@ -34,6 +34,7 @@ type app struct {
 	waitForOpponent chan struct{}
 	gameID          string
 	moveNo          int
+	client          *ably.Realtime
 	ch              *ably.RealtimeChannel
 }
 
@@ -45,6 +46,10 @@ type msg struct {
 }
 
 func (a *app) watchGame(ctx context.Context) {
+	// Try to rewind channel. TODO: why does this not work?
+	a.ch = a.client.Channels.Get(a.gameID,
+		ably.ChannelWithParams("rewind", "1"))
+
 	done := make(chan bool)
 	nMove := 0
 	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
@@ -286,7 +291,7 @@ func (a *app) Opponent() string {
 	return a.opponent
 }
 
-func (a *app) handlePresenceEvent(message *ably.PresenceMessage, iHaveEntered chan struct{}, client *ably.Realtime, cancel func()) {
+func (a *app) handlePresenceEvent(message *ably.PresenceMessage, iHaveEntered chan struct{}, cancel func()) {
 	//log.Println(message)
 	switch message.Action {
 	case ably.PresenceActionEnter:
@@ -303,7 +308,7 @@ func (a *app) handlePresenceEvent(message *ably.PresenceMessage, iHaveEntered ch
 		if opponentGone {
 			log.Println("opponent", a.Opponent(), "has left the game")
 			log.Println(a.game, a.game.Method())
-			client.Close()
+			a.client.Close()
 			cancel()
 			os.Exit(0)
 		}
@@ -363,7 +368,8 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	client, err := ably.NewRealtime(
+	var err error
+	a.client, err = ably.NewRealtime(
 		ably.WithKey(key),
 		ably.WithClientID(a.userID))
 	if err != nil {
@@ -376,7 +382,7 @@ func main() {
 		s := <-sigs
 		log.Println("Got signal", s, "shutting down.")
 		fmt.Println(a.game)
-		client.Close()
+		a.client.Close()
 		cancel()
 
 		// If we are still running, we are stuck in a blocking read, so force-close.
@@ -384,9 +390,9 @@ func main() {
 		os.Exit(0)
 	}()
 
-	defer client.Close()
+	defer a.client.Close()
 
-	a.ch = client.Channels.Get(a.gameID)
+	a.ch = a.client.Channels.Get(a.gameID)
 	//ably.ChannelWithParams("rewind", "1"))
 
 	if a.isSpectator {
@@ -396,7 +402,7 @@ func main() {
 
 	iHaveEntered := make(chan struct{})
 	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
-		a.handlePresenceEvent(message, iHaveEntered, client, cancel)
+		a.handlePresenceEvent(message, iHaveEntered, cancel)
 	})
 	if err != nil {
 		log.Fatalln(err)
