@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"github.com/ably/ably-go/ably"
 	"github.com/notnil/chess"
+	"github.com/notnil/chess/image"
 	"github.com/notnil/chess/uci"
+	//"github.com/toqueteos/webbrowser"
+	"github.com/pkg/browser"
 	"log"
 	"os"
 	"os/signal"
@@ -189,12 +192,32 @@ func (a *app) gameIsOver(ctx context.Context) bool {
 	return a.game.Outcome() != chess.NoOutcome
 }
 
+func (a *app) showSVG() {
+	f, err := os.CreateTemp("", "chess*.svg")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer f.Close()
+	err = image.SVG(f, a.game.Position().Board())
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	f.Close()
+	browser.OpenFile(f.Name())
+}
+
 func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) string {
 	for ctx.Err() == nil {
 		myMove := a.readInput(userIn)
 		if myMove == resign {
 			a.game.Resign(a.colour)
-			break
+			return myMove
+		}
+		if myMove == "show" {
+			a.showSVG()
+			continue
 		}
 		err := a.game.MoveStr(myMove)
 		if err == nil {
