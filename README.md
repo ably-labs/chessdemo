@@ -27,7 +27,10 @@ Otherwise you are a spectator.
 
 You can force yourself to be a spectator by usig the `-watch` flag.
 
-Input can be any move in [algebraic notation](https://en.wikipedia.org/wiki/Algebraic_notation_(chess)), or the string `resign`
+Input can be any move in [algebraic notation](https://en.wikipedia.org/wiki/Algebraic_notation_(chess)).
+or:
+- `resign`
+- `show` which displays the positon in the default browser
 
 ## Using a chess engine
 Figuring out good moves can be difficult. So why not use the number-crunching
