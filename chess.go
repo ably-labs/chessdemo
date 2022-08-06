@@ -258,7 +258,12 @@ func (a *app) moveFromEngine(ctx context.Context) string {
 		log.Fatalln(err)
 	}
 
-	move := a.eng.SearchResults().BestMove
+	sr := a.eng.SearchResults()
+
+	log.Printf("depth %d, %d nodes searched in %s, %d nodes per second",
+		sr.Info.Depth, sr.Info.Nodes, sr.Info.Time, sr.Info.NPS)
+	move := sr.BestMove
+
 	err = a.game.Move(move)
 	if err != nil {
 		log.Fatalln(err)
