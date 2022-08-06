@@ -46,9 +46,7 @@ type msg struct {
 }
 
 func (a *app) watchGame(ctx context.Context) {
-	// Try to rewind channel. TODO: why does this not work?
-	a.ch = a.client.Channels.Get(a.gameID,
-		ably.ChannelWithParams("rewind", "1"))
+	a.ch = a.client.Channels.Get("[?rewind=1]" + a.gameID)
 
 	done := make(chan bool)
 	nMove := 0
@@ -392,13 +390,12 @@ func main() {
 
 	defer a.client.Close()
 
-	a.ch = a.client.Channels.Get(a.gameID)
-	//ably.ChannelWithParams("rewind", "1"))
-
 	if a.isSpectator {
 		a.watchGame(ctx)
 		return
 	}
+
+	a.ch = a.client.Channels.Get(a.gameID)
 
 	iHaveEntered := make(chan struct{})
 	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
