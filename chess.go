@@ -12,7 +12,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -211,7 +213,9 @@ func (a *app) startEngine() {
 		log.Fatalln(err)
 	}
 	// initialize uci with new game
-	err = a.eng.Run(uci.CmdUCI, uci.CmdIsReady, uci.CmdUCINewGame)
+	threadsCmd := uci.CmdSetOption{Name: "Threads", Value: strconv.Itoa(runtime.NumCPU())}
+	err = a.eng.Run(uci.CmdUCI, uci.CmdIsReady, threadsCmd, uci.CmdUCINewGame)
+
 	if err != nil {
 		log.Fatalln(err)
 	}
