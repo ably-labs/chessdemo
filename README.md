@@ -31,6 +31,8 @@ Input can be any move in [algebraic notation](https://en.wikipedia.org/wiki/Alge
 or:
 - `resign`
 - `show` which displays the positon in the default browser
+  ![svg image](chess716559414.svg)
+
 
 ## Using a chess engine
 Figuring out good moves can be difficult. So why not use the number-crunching
