@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/ably/ably-go v1.2.8
 	github.com/notnil/chess v1.8.0
-	github.com/toqueteos/webbrowser v1.2.0
+	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 )
 
 require (
@@ -18,7 +18,6 @@ require (
 	github.com/klauspost/compress v1.10.3 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/pelletier/go-toml/v2 v2.0.2 // indirect
-	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/stretchr/testify v1.7.2 // indirect
 	github.com/ugorji/go/codec v1.2.7 // indirect
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect
