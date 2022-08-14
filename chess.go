@@ -10,11 +10,11 @@ import (
 	"github.com/notnil/chess"
 	"github.com/notnil/chess/image"
 	"github.com/notnil/chess/uci"
-	//"github.com/toqueteos/webbrowser"
 	"github.com/pkg/browser"
 	"log"
 	"os"
 	"os/signal"
+	"path"
 	"runtime"
 	"sort"
 	"strconv"
@@ -34,6 +34,7 @@ type app struct {
 	eng             *uci.Engine
 	engMoveTime     time.Duration
 	isSpectator     bool
+	drawSVG         bool
 	oLock           sync.RWMutex
 	opponent        string
 	waitForOpponent chan struct{}
@@ -41,6 +42,7 @@ type app struct {
 	moveNo          int
 	client          *ably.Realtime
 	ch              *ably.RealtimeChannel
+	nShow           int
 }
 
 type msg struct {
@@ -81,6 +83,9 @@ func (a *app) watchGame(ctx context.Context) {
 
 		fmt.Println(a.prompt(), m.Move)
 		fmt.Println(a.game.Position().Board().Draw())
+		if a.drawSVG {
+			a.showSVG()
+		}
 		if a.gameIsOver(ctx) {
 			done <- true
 		}
@@ -192,20 +197,27 @@ func (a *app) gameIsOver(ctx context.Context) bool {
 	return a.game.Outcome() != chess.NoOutcome
 }
 
-func (a *app) showSVG() {
-	f, err := os.CreateTemp("", "chess*.svg")
+func (a *app) showSVG() error {
+	f, err := os.Create(path.Join(os.TempDir(), "chess.svg"))
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
 	defer f.Close()
 	err = image.SVG(f, a.game.Position().Board())
 	if err != nil {
-		log.Println(err)
-		return
+		return err
 	}
-	f.Close()
-	browser.OpenFile(f.Name())
+	log.Println("Drawing board to", f.Name())
+
+	err = f.Close()
+	if err != nil {
+		return err
+	}
+	a.nShow++
+	if a.nShow > 1 {
+		return nil
+	}
+	return browser.OpenFile(f.Name())
 }
 
 func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) string {
@@ -216,7 +228,11 @@ func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) string {
 			return myMove
 		}
 		if myMove == "show" {
-			a.showSVG()
+			err := a.showSVG()
+			if err != nil {
+				log.Println(err)
+				continue
+			}
 			continue
 		}
 		err := a.game.MoveStr(myMove)
@@ -385,8 +401,9 @@ func main() {
 	flag.StringVar(&a.userID, "name", "", "your name")
 	flag.StringVar(&a.gameID, "game", "game1", "game name")
 	flag.StringVar(&a.engine, "engine", "", "run UCI engine")
-	flag.DurationVar(&a.engMoveTime, "timePerMove", 10*time.Millisecond, "how much time to allow engine to make each move")
+	flag.DurationVar(&a.engMoveTime, "time", 500*time.Millisecond, "how much time to allow engine to make each move")
 	flag.BoolVar(&a.isSpectator, "watch", false, "watch game")
+	flag.BoolVar(&a.drawSVG, "svg", false, "draw SVG of each move")
 	flag.Parse()
 	if a.userID == "" {
 		log.Fatalln("You must provide a -name argument")
