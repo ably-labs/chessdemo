@@ -14,7 +14,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -198,7 +198,7 @@ func (a *app) gameIsOver(ctx context.Context) bool {
 }
 
 func (a *app) showSVG() error {
-	f, err := os.Create(path.Join(os.TempDir(), "chess.svg"))
+	f, err := os.Create(filepath.Join(os.TempDir(), "chess.svg"))
 	if err != nil {
 		return err
 	}
