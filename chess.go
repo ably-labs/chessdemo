@@ -331,14 +331,10 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 	}
 }
 
-func (a *app) setOppent(id string) (changed bool) {
+func (a *app) setOppent(id string) {
 	a.oLock.Lock()
-	defer a.oLock.Unlock()
-	if a.opponent != "" {
-		return false
-	}
 	a.opponent = id
-	return true
+	a.oLock.Unlock()
 }
 
 func (a *app) Opponent() string {
@@ -357,12 +353,11 @@ func (a *app) handlePresenceEvent(message *ably.PresenceMessage, cancel func()) 
 			})
 			return
 		}
-		changed := a.setOppent(message.ClientID)
-		if changed {
-			a.onOpponentArrive.Do(func() {
-				close(a.waitForOpponent)
-			})
-		}
+
+		a.onOpponentArrive.Do(func() {
+			a.setOppent(message.ClientID)
+			close(a.waitForOpponent)
+		})
 	case ably.PresenceActionLeave:
 		opponentGone := message.ClientID == a.Opponent()
 		if opponentGone {
