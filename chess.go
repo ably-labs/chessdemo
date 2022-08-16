@@ -27,22 +27,26 @@ import (
 const resign = "resign"
 
 type app struct {
-	game            *chess.Game
-	colour          chess.Color
-	userID          string
-	engine          string
-	eng             *uci.Engine
-	engMoveTime     time.Duration
-	isSpectator     bool
-	drawSVG         bool
-	oLock           sync.RWMutex
-	opponent        string
-	waitForOpponent chan struct{}
-	gameID          string
-	moveNo          int
-	client          *ably.Realtime
-	ch              *ably.RealtimeChannel
-	nShow           int
+	game             *chess.Game
+	colour           chess.Color
+	userID           string
+	engine           string
+	eng              *uci.Engine
+	engMoveTime      time.Duration
+	isSpectator      bool
+	drawSVG          bool
+	oLock            sync.RWMutex
+	opponent         string
+	waitForOpponent  chan struct{}
+	onOpponentArrive sync.Once
+	iHaveEntered     chan struct{}
+	onMyEntry        sync.Once
+
+	gameID string
+	moveNo int
+	client *ably.Realtime
+	ch     *ably.RealtimeChannel
+	nShow  int
 }
 
 type msg struct {
@@ -50,6 +54,7 @@ type msg struct {
 	MoveNum int    `json:"move_num"`
 	Colour  int    `json:"colour"`
 	FEN     string `json:"FEN"`
+	NextFEN string `json:"next_FEN"`
 }
 
 func (a *app) watchGame(ctx context.Context) {
@@ -309,12 +314,17 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 	}
 
 	fmt.Println(a.game.Position().Board().Draw())
+	nextFen, err := a.game.Position().MarshalText()
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	err = a.ch.Publish(ctx, a.gameID, msg{
 		Move:    myMove,
 		Colour:  int(a.colour),
 		MoveNum: a.moveNo,
 		FEN:     string(fen),
+		NextFEN: string(nextFen),
 	})
 	if err != nil {
 		log.Fatalln(err)
@@ -337,17 +347,21 @@ func (a *app) Opponent() string {
 	return a.opponent
 }
 
-func (a *app) handlePresenceEvent(message *ably.PresenceMessage, iHaveEntered chan struct{}, cancel func()) {
+func (a *app) handlePresenceEvent(message *ably.PresenceMessage, cancel func()) {
 	//log.Println(message)
 	switch message.Action {
 	case ably.PresenceActionEnter:
 		if message.ClientID == a.userID {
-			close(iHaveEntered)
+			a.onMyEntry.Do(func() {
+				close(a.iHaveEntered)
+			})
 			return
 		}
 		changed := a.setOppent(message.ClientID)
 		if changed {
-			close(a.waitForOpponent)
+			a.onOpponentArrive.Do(func() {
+				close(a.waitForOpponent)
+			})
 		}
 	case ably.PresenceActionLeave:
 		opponentGone := message.ClientID == a.Opponent()
@@ -397,6 +411,7 @@ func main() {
 	a := app{
 		game:            chess.NewGame(),
 		waitForOpponent: make(chan struct{}),
+		iHaveEntered:    make(chan struct{}),
 	}
 	flag.StringVar(&a.userID, "name", "", "your name")
 	flag.StringVar(&a.gameID, "game", "game1", "game name")
@@ -446,9 +461,8 @@ func main() {
 
 	a.ch = a.client.Channels.Get(a.gameID)
 
-	iHaveEntered := make(chan struct{})
 	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
-		a.handlePresenceEvent(message, iHaveEntered, cancel)
+		a.handlePresenceEvent(message, cancel)
 	})
 	if err != nil {
 		log.Fatalln(err)
@@ -462,7 +476,7 @@ func main() {
 
 	// We need to wait until we appear in presence.
 	select {
-	case <-iHaveEntered:
+	case <-a.iHaveEntered:
 	case <-time.After(time.Second):
 	}
 
