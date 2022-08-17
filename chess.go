@@ -173,6 +173,10 @@ func (a *app) playGame(ctx context.Context) {
 		defer a.stopEngine()
 	}
 	defer unsub()
+
+	// Print initial position.
+	fmt.Println(a.game.Position().Board().Draw())
+
 	switch a.colour {
 	case chess.White:
 		fmt.Println("Waiting for an opponent to arrive.")

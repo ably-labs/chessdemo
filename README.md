@@ -10,15 +10,20 @@ a simple demo using ably realitime API to transmit chess moves.
 
 `go install github.com/ably-labs/chessdemo@latest`
 
+This will install the `chessdemo` in you ~/go/bin directory.
+
+
 Alternatively, if you don't have Go installed, you can just grab 
 pre-complied executables for your machine from 
 [here](https://github.com/ably-labs/chessdemo/releases).
+
+Otherwise 
 
 ## Playing
 
 ```
 export ABLY_KEY=xxxxxxxxxxxxxxxxx
-chessdemo -name myname -game gameId
+~/go/bin/chessdemo -name myname -game gameId
 ```
 
 If you are the first player in the gameID game, then you play white.
