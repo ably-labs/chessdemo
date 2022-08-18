@@ -381,6 +381,10 @@ func (a *app) engineText() string {
 	return fmt.Sprintf(" (using %s)", a.engine)
 }
 
+func presenceStr(p *ably.PresenceMessage) string {
+	return fmt.Sprintf("%s (%s)", p.ClientID, p.Data)
+}
+
 func (a *app) determineMyColour(ctx context.Context) chess.Color {
 	players, err := a.ch.Presence.Get(ctx)
 	if err != nil {
@@ -400,7 +404,7 @@ func (a *app) determineMyColour(ctx context.Context) chess.Color {
 		a.colour = chess.NoColor
 		a.isSpectator = true
 		a.setOppent(players[0].ClientID)
-		fmt.Println("You are watching the game:", players[0].ClientID, " v ", players[1].ClientID)
+		fmt.Println("You are watching the game:", presenceStr(players[0]), " v ", presenceStr(players[1]))
 	}
 	return a.colour
 }
@@ -484,6 +488,7 @@ func main() {
 		a.watchGame(ctx)
 		return
 	}
+	a.ch.Presence.Update(ctx, colour.Name())
 	fmt.Println("you are " + a.colour.Name() + a.engineText())
 	if a.Opponent() != "" {
 		fmt.Println("playing against", a.Opponent())
