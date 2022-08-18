@@ -27,8 +27,6 @@
     board.position('start', false);
 
     async function displayGame() {
-        // Use a very restricted Ably API Key which only allows the user to subscribe to messages on the game1
-        // channel in the chessdemo app.
         const ably_key = sessionStorage.ABLY_KEY || prompt("Enter your ABLY_KEY");
         if(/^[a-z0-9_\-.:]{32,64}$/i.test(ably_key)) sessionStorage.ABLY_KEY = ably_key;
         const ably = new Ably.Realtime.Promise(ably_key);
