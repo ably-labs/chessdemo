@@ -1,5 +1,7 @@
 # chessdemo
 
+[![Go](https://github.com/ably-labs/chessdemo/actions/workflows/go.yml/badge.svg)](https://github.com/ably-labs/chessdemo/actions/workflows/go.yml)
+
 a simple demo using ably realitime API to transmit chess moves.
 
 ## Dependencies
@@ -10,7 +12,7 @@ a simple demo using ably realitime API to transmit chess moves.
 
 `go install github.com/ably-labs/chessdemo@latest`
 
-This will install the `chessdemo` in you ~/go/bin directory.
+This will install the `chessdemo` in you `$(HOME)/go/bin` directory.
 
 
 Alternatively, if you don't have Go installed, you can just grab 
@@ -52,10 +54,15 @@ chessdemo -name myname -game gameId -engine stockfish
 
 You can use [stockfish](https://stockfishchess.org/) (as above) or any UCI compliant chess engine.
 
-To install stockfish on a mac, simply run
+To install stockfish on a mac, run
 
 ```
 brew install stockfish
+```
+
+On Ubuntu run
+```
+sudo apt-get -y install stockfish
 ```
 
 ## Example Session
@@ -134,3 +141,5 @@ g5
 - All players require my Ably API Key
 - No way to offer or accept a draw
 - clunky user interface
+- internally we should use UCI chess notation, rather than algebriac, which is harder to parse, more dependent on context,
+and not understood by various chess libraries. Algebriac notation should only be used for user interaction.
