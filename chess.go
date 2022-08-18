@@ -50,11 +50,12 @@ type app struct {
 }
 
 type msg struct {
-	Move    string `json:"move"`
-	MoveNum int    `json:"move_num"`
-	Colour  int    `json:"colour"`
-	FEN     string `json:"FEN"`
-	NextFEN string `json:"next_FEN"`
+	Move     string `json:"move"`
+	Resigned bool   `json:"resigned"`
+	MoveNum  int    `json:"move_num"`
+	Colour   int    `json:"colour"`
+	FEN      string `json:"FEN"`
+	NextFEN  string `json:"next_FEN"`
 }
 
 func (a *app) watchGame(ctx context.Context) {
@@ -229,12 +230,12 @@ func (a *app) showSVG() error {
 	return browser.OpenFile(f.Name())
 }
 
-func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) string {
+func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) (move *chess.Move, resigned bool) {
 	for ctx.Err() == nil {
 		myMove := a.readInput(userIn)
 		if myMove == resign {
 			a.game.Resign(a.colour)
-			return myMove
+			return nil, true
 		}
 		if myMove == "show" {
 			err := a.showSVG()
@@ -244,14 +245,21 @@ func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) string {
 			}
 			continue
 		}
-		err := a.game.MoveStr(myMove)
-		if err == nil {
-			return myMove
+		var err error
+		move, err = chess.AlgebraicNotation{}.Decode(a.game.Position(), myMove)
+		if err != nil {
+			fmt.Println("Can not decode move", err)
+			continue
 		}
-		// illegal move, print out an error, and try again
-		fmt.Println(err)
+		g2 := a.game.Clone()
+		err = g2.Move(move)
+		if err != nil {
+			fmt.Println("illegal move", err)
+			continue
+		}
+		break
 	}
-	return ""
+	return move, false
 }
 
 func (a *app) startEngine() {
@@ -273,8 +281,7 @@ func (a *app) stopEngine() {
 	a.eng.Close()
 }
 
-func (a *app) moveFromEngine(ctx context.Context) string {
-	enc := chess.AlgebraicNotation{}
+func (a *app) moveFromEngine(ctx context.Context) *chess.Move {
 	prevPos := a.game.Position()
 	cmdPos := uci.CmdPosition{Position: prevPos}
 	cmdGo := uci.CmdGo{MoveTime: a.engMoveTime}
@@ -287,18 +294,18 @@ func (a *app) moveFromEngine(ctx context.Context) string {
 
 	log.Printf("depth %d, %d nodes searched in %s, %d nodes per second",
 		sr.Info.Depth, sr.Info.Nodes, sr.Info.Time, sr.Info.NPS)
-	move := sr.BestMove
+	return sr.BestMove
 
-	err = a.game.Move(move)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	moves := a.game.Moves()
-	lastMove := moves[len(moves)-1]
-	moveStr := enc.Encode(prevPos, lastMove)
-
-	fmt.Println(a.prompt(), moveStr)
-	return moveStr
+	//err = a.game.Move(move)
+	//if err != nil {
+	//	log.Fatalln(err)
+	//}
+	//moves := a.game.Moves()
+	//lastMove := moves[len(moves)-1]
+	//moveStr := enc.Encode(prevPos, lastMove)
+	//
+	//fmt.Println(a.prompt(), moveStr)
+	//return moveStr
 }
 
 func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
@@ -307,11 +314,12 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 		log.Fatalln(err)
 	}
 
-	var myMove string
+	var myMove *chess.Move
+	var resigned bool
 	if a.engine != "" {
 		myMove = a.moveFromEngine(ctx)
 	} else {
-		myMove = a.moveFromReader(ctx, userIn)
+		myMove, resigned = a.moveFromReader(ctx, userIn)
 	}
 	if ctx.Err() != nil {
 		return
