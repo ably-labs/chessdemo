@@ -17,7 +17,7 @@ func Test_app_moveFromReader(t *testing.T) {
 		want   string
 	}{
 		{"e4", chess.White, "e4\n", "e4"},
-		{"Bad move then e4", chess.White, "zz\nne4\n", "e4"},
+		{"Bad move then e4", chess.White, "zz\ne4\n", "e4"},
 		{"impossible move then e4", chess.White, "exd5\ne4\n", "e4"},
 	}
 	for _, tt := range tests {
