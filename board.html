@@ -31,9 +31,6 @@
     let apiKey = sessionStorage.ABLY_API_KEY || "";
     const re = /^[0-9a-z_\-:\.]{18,64}$/i;
 
-    // set temporary API key - which will be deleted after show and tell.
-    sessionStorage.ABLY_API_KEY = apiKey = '6Z_qIg.r86a-Q:c2wnk7v0Lv796YFtneEIZ1fzVKZgux7KKxeU5BtW9k0';
-
     while (!re.test(`${apiKey}`)) {
         sessionStorage.ABLY_API_KEY = apiKey = prompt(`
         Enter your Ably API key:
