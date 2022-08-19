@@ -14,7 +14,12 @@
 
 <h1>Ably chess viewer</h1>
 <div id="myBoard" style="width: 400px"></div>
-<p><div id="thismove"></div></p>
+<p>
+<div id="thismove"></div>
+</p>
+<p>
+<div id="result"></div>
+</p>
 
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
 <script src="https://chessboardjs.com/js/jquery-3.4.1.min.js"></script>
@@ -26,33 +31,45 @@
     let apiKey = sessionStorage.ABLY_API_KEY || "";
     const re = /^[0-9a-z_\-:\.]{18,64}$/i;
 
+    // set temporary API key - which will be deleted after show and tell.
+    sessionStorage.ABLY_API_KEY = apiKey = '6Z_qIg.r86a-Q:c2wnk7v0Lv796YFtneEIZ1fzVKZgux7KKxeU5BtW9k0';
+
     while (!re.test(`${apiKey}`)) {
-      sessionStorage.ABLY_API_KEY = apiKey = prompt(`
+        sessionStorage.ABLY_API_KEY = apiKey = prompt(`
         Enter your Ably API key:
         Get one for FREE from: https://ably.com/sign-up`);
     }
 
     (async (board, key) => {
-      board.position("start", false);
+        board.position("start", false);
 
-      const ably = new Ably.Realtime.Promise(key);
-      await ably.connection.once("connected");
+        const ably = new Ably.Realtime.Promise(key);
+        await ably.connection.once("connected");
 
-      console.log("Connected to Ably!");
+        console.log("Connected to Ably!");
 
-      const channel = ably.channels.get("[?rewind=1]game1");
-      channel.subscribe("game1", ({ data }) => {
-        const { move, move_num, FEN, next_FEN, colour } = data;
+        const channel = ably.channels.get("[?rewind=1]game1");
+        channel.subscribe("game1", ({data}) => {
+            const {move, move_num, FEN, next_FEN, colour, result} = data;
 
-        board.position(next_FEN, true);
-        console.log("got: ", FEN);
-        console.log("got: ", move);
-        console.log("got: ", colour);
-        let text = $("#thismove").html();
-        text = `${colour === 1 ? move_num : text}: ${move}`;
+            board.position(next_FEN, true);
+            console.log("got: ", FEN);
+            console.log("got: ", move);
+            console.log("got: ", result);
+            let text = $("#thismove").html();
+            if (colour == 1 && (move_num % 10 == 1)) {
+                // new game
+                text = "";
+            }
+            if (colour == 1) {
+                text = `${text}${move_num}: ${move}`;
+            } else {
+                text = `${text} ${move}<br>`;
+            }
 
-        $("#thismove").html(text);
-      });
+            $("#thismove").html(text);
+            $("#result").html(result);
+        });
     })(Chessboard("myBoard"), apiKey);
 
 </script>

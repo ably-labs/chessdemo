@@ -55,6 +55,7 @@ type msg struct {
 	Colour  int    `json:"colour"`
 	FEN     string `json:"FEN"`
 	NextFEN string `json:"next_FEN"`
+	Result  string `json:"result"`
 }
 
 func (a *app) watchGame(ctx context.Context) {
@@ -323,12 +324,18 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 		log.Fatalln(err)
 	}
 
+	result := ""
+	if a.game.Outcome() != chess.NoOutcome {
+		result = fmt.Sprintf("%s %s", a.game.Outcome(), a.game.Method().String())
+	}
+
 	err = a.ch.Publish(ctx, a.gameID, msg{
 		Move:    myMove,
 		Colour:  int(a.colour),
 		MoveNum: a.moveNo,
 		FEN:     string(fen),
 		NextFEN: string(nextFen),
+		Result:  result,
 	})
 	if err != nil {
 		log.Fatalln(err)
