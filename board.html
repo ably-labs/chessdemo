@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+
+    <title>Ably Chess Viewer</title>
+
+    <base href="https://chessboardjs.com"/>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
+          integrity="sha384-q94+BZtLrkL1/ohfjR8c6L+A6qzNH9R2hBLwyoAfu3i/WCvQjzL2RQJ3uNHDISdU" crossorigin="anonymous">
+</head>
+<body>
+
+<h1>Ably chess viewer</h1>
+<div id="myBoard" style="width: 400px"></div>
+<p><div id="thismove"></div></p>
+
+<script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
+<script src="https://chessboardjs.com/js/jquery-3.4.1.min.js"></script>
+<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"
+        integrity="sha384-8Vi8VHwn3vjQ9eUHUxex3JSN/NFqUg3QbPyX8kWyb93+8AC/pPWTzj+nHtbC5bxD"
+        crossorigin="anonymous"></script>
+<script>
+
+    let apiKey = sessionStorage.ABLY_API_KEY || "";
+    const re = /^[0-9a-z_\-:\.]{18,64}$/i;
+
+    while (!re.test(`${apiKey}`)) {
+      sessionStorage.ABLY_API_KEY = apiKey = prompt(`
+        Enter your Ably API key:
+        Get one for FREE from: https://ably.com/sign-up`);
+    }
+
+    (async (board, key) => {
+      board.position("start", false);
+
+      const ably = new Ably.Realtime.Promise(key);
+      await ably.connection.once("connected");
+
+      console.log("Connected to Ably!");
+
+      const channel = ably.channels.get("[?rewind=1]game1");
+      channel.subscribe("game1", ({ data }) => {
+        const { move, move_num, FEN, next_FEN, colour } = data;
+
+        board.position(next_FEN, true);
+        console.log("got: ", FEN);
+        console.log("got: ", move);
+        console.log("got: ", colour);
+        let text = $("#thismove").html();
+        text = `${colour === 1 ? move_num : text}: ${move}`;
+
+        $("#thismove").html(text);
+      });
+    })(Chessboard("myBoard"), apiKey);
+
+</script>
+
+</body>
+</html>
