@@ -51,13 +51,13 @@ type app struct {
 }
 
 type msg struct {
-	Move      string `json:"move",omitempty`
+	Move      string `json:"move,omitempty"`
 	Algebriac string `json:"algebriac,omitempty"`
 	Resigned  bool   `json:"resigned,omitempty"`
 	MoveNum   int    `json:"move_num"`
 	Colour    int    `json:"colour"`
 	NextFEN   string `json:"next_FEN"`
-  Result  string `json:"result"`
+	Result    string `json:"result"`
 }
 
 var (
@@ -380,7 +380,7 @@ func (a *app) handleMyMove(ctx context.Context) {
 		log.Fatalln(err)
 	}
 
-  result := ""
+	result := ""
 	if a.game.Outcome() != chess.NoOutcome {
 		result = fmt.Sprintf("%s %s", a.game.Outcome(), a.game.Method().String())
 	}
@@ -394,7 +394,7 @@ func (a *app) handleMyMove(ctx context.Context) {
 		Colour:    int(a.colour),
 		MoveNum:   a.moveNo,
 		NextFEN:   string(nextFen),
-		Result:  result,
+		Result:    result,
 	})
 	if err != nil {
 		log.Fatalln(err)
