@@ -11,6 +11,7 @@ import (
 	"github.com/notnil/chess/image"
 	"github.com/notnil/chess/uci"
 	"github.com/pkg/browser"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -31,7 +32,7 @@ type app struct {
 	colour           chess.Color
 	userID           string
 	engine           string
-	eng              *uci.Engine
+	mover            mover
 	engMoveTime      time.Duration
 	isSpectator      bool
 	drawSVG          bool
@@ -50,13 +51,18 @@ type app struct {
 }
 
 type msg struct {
-	Move     string `json:"move"`
-	Resigned bool   `json:"resigned"`
-	MoveNum  int    `json:"move_num"`
-	Colour   int    `json:"colour"`
-	FEN      string `json:"FEN"`
-	NextFEN  string `json:"next_FEN"`
+	Move      string `json:"move",omitempty`
+	Algebriac string `json:"algebriac,omitempty"`
+	Resigned  bool   `json:"resigned,omitempty"`
+	MoveNum   int    `json:"move_num"`
+	Colour    int    `json:"colour"`
+	NextFEN   string `json:"next_FEN"`
 }
+
+var (
+	uciNotation       = chess.UCINotation{}
+	algebraicNotation = chess.AlgebraicNotation{}
+)
 
 func (a *app) watchGame(ctx context.Context) {
 	a.ch = a.client.Channels.Get("[?rewind=1]" + a.gameID)
@@ -66,28 +72,37 @@ func (a *app) watchGame(ctx context.Context) {
 	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
 		nMove++
 		m := decodeMsg(message)
-
+		moved := false
 		if nMove == 1 {
-			fen, err := chess.FEN(m.FEN)
+			fen, err := chess.FEN(m.NextFEN)
 			if err != nil {
 				log.Fatalln(err)
 			}
 			a.game = chess.NewGame(fen)
+			moved = true
 		}
-		if m.Move == resign {
+		if m.Resigned {
 			a.game.Resign(chess.Color(m.Colour))
 			done <- true
 			return
 		}
+		if !moved {
+			move, err := uciNotation.Decode(a.game.Position(), m.Move)
+			if err != nil {
+				log.Fatalln(err)
+			}
 
-		err := a.game.MoveStr(m.Move)
-		if err != nil {
-			log.Fatalln(err)
+			err = a.game.Move(move)
+
+			if err != nil {
+				log.Fatalln(err)
+			}
+
 		}
 		a.moveNo = m.MoveNum
 		a.colour = chess.Color(m.Colour)
 
-		fmt.Println(a.prompt(), m.Move)
+		fmt.Println(a.prompt(), m.Algebriac)
 		fmt.Println(a.game.Position().Board().Draw())
 		if a.drawSVG {
 			a.showSVG()
@@ -114,9 +129,9 @@ func (a *app) prompt() string {
 	panic("bad colour")
 }
 
-func (a *app) readInput(r *bufio.Reader) string {
-	os.Stdout.WriteString(a.prompt())
-	line, err := r.ReadString('\n')
+func (r *readerInput) readInput() string {
+	os.Stdout.WriteString(r.a.prompt())
+	line, err := r.userIn.ReadString('\n')
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -132,16 +147,21 @@ func handleOpponentMove(ctx context.Context, game *chess.Game, waitCh chan msg) 
 	case m = <-waitCh:
 		break
 	}
-	if m.Move == resign {
+	if m.Resigned {
 		game.Resign(chess.Color(m.Colour))
 		return
 	}
 
-	err := game.MoveStr(m.Move)
+	move, err := uciNotation.Decode(game.Position(), m.Move)
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fmt.Println(m.Move)
+
+	err = game.Move(move)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	fmt.Println(m.Algebriac)
 	fmt.Println(game.Position().Board().Draw())
 
 }
@@ -170,9 +190,11 @@ func (a *app) playGame(ctx context.Context) {
 		log.Fatalln(err)
 	}
 	if a.engine != "" {
-		a.startEngine()
-		defer a.stopEngine()
+		a.mover = a.startEngine()
+	} else {
+		a.mover = a.newReaderInput(os.Stdin)
 	}
+	defer a.mover.close()
 	defer unsub()
 
 	// Print initial position.
@@ -183,18 +205,19 @@ func (a *app) playGame(ctx context.Context) {
 		fmt.Println("Waiting for an opponent to arrive.")
 		<-a.waitForOpponent
 		fmt.Println("Your opponent", a.Opponent(), "is playing black.")
+		time.Sleep(time.Second)
 	case chess.Black:
 		// If we are black, our opponent moves first.
 		handleOpponentMove(ctx, a.game, waitChan)
 	}
 
-	userIn := bufio.NewReader(os.Stdin)
 	for !a.gameIsOver(ctx) {
 		a.moveNo++
-		a.handleMyMove(ctx, userIn)
+		a.handleMyMove(ctx)
 		if a.gameIsOver(ctx) {
 			break
 		}
+
 		handleOpponentMove(ctx, a.game, waitChan)
 	}
 	fmt.Println(a.game, a.game.Method())
@@ -230,15 +253,32 @@ func (a *app) showSVG() error {
 	return browser.OpenFile(f.Name())
 }
 
-func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) (move *chess.Move, resigned bool) {
+type mover interface {
+	choose(ctx context.Context) (*chess.Move, bool)
+	close()
+}
+
+type readerInput struct {
+	userIn *bufio.Reader
+	a      *app
+}
+
+func (a *app) newReaderInput(r io.Reader) *readerInput {
+	return &readerInput{
+		userIn: bufio.NewReader(r),
+		a:      a,
+	}
+}
+
+func (r *readerInput) choose(ctx context.Context) (move *chess.Move, resigned bool) {
 	for ctx.Err() == nil {
-		myMove := a.readInput(userIn)
+		myMove := r.readInput()
 		if myMove == resign {
-			a.game.Resign(a.colour)
+			r.a.game.Resign(r.a.colour)
 			return nil, true
 		}
 		if myMove == "show" {
-			err := a.showSVG()
+			err := r.a.showSVG()
 			if err != nil {
 				log.Println(err)
 				continue
@@ -246,12 +286,12 @@ func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) (move *c
 			continue
 		}
 		var err error
-		move, err = chess.AlgebraicNotation{}.Decode(a.game.Position(), myMove)
+		move, err = algebraicNotation.Decode(r.a.game.Position(), myMove)
 		if err != nil {
 			fmt.Println("Can not decode move", err)
 			continue
 		}
-		g2 := a.game.Clone()
+		g2 := r.a.game.Clone()
 		err = g2.Move(move)
 		if err != nil {
 			fmt.Println("illegal move", err)
@@ -262,67 +302,75 @@ func (a *app) moveFromReader(ctx context.Context, userIn *bufio.Reader) (move *c
 	return move, false
 }
 
-func (a *app) startEngine() {
-	var err error
-	a.eng, err = uci.New(a.engine)
+func (r *readerInput) close() {}
+
+type engineInput struct {
+	engine *uci.Engine
+	a      *app
+}
+
+func (a *app) startEngine() *engineInput {
+	eng, err := uci.New(a.engine)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	// initialize uci with new game
 	threadsCmd := uci.CmdSetOption{Name: "Threads", Value: strconv.Itoa(runtime.NumCPU())}
-	err = a.eng.Run(uci.CmdUCI, uci.CmdIsReady, threadsCmd, uci.CmdUCINewGame)
+	err = eng.Run(uci.CmdUCI, uci.CmdIsReady, threadsCmd, uci.CmdUCINewGame)
 
 	if err != nil {
 		log.Fatalln(err)
 	}
+	return &engineInput{engine: eng, a: a}
 }
 
-func (a *app) stopEngine() {
-	a.eng.Close()
+func (e *engineInput) close() {
+	e.engine.Close()
 }
 
-func (a *app) moveFromEngine(ctx context.Context) *chess.Move {
-	prevPos := a.game.Position()
+func (e *engineInput) choose(ctx context.Context) (*chess.Move, bool) {
+
+	prevPos := e.a.game.Position()
 	cmdPos := uci.CmdPosition{Position: prevPos}
-	cmdGo := uci.CmdGo{MoveTime: a.engMoveTime}
-	err := a.eng.Run(cmdPos, cmdGo)
+	cmdGo := uci.CmdGo{MoveTime: e.a.engMoveTime}
+	err := e.engine.Run(cmdPos, cmdGo)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
-	sr := a.eng.SearchResults()
+	sr := e.engine.SearchResults()
 
 	log.Printf("depth %d, %d nodes searched in %s, %d nodes per second",
 		sr.Info.Depth, sr.Info.Nodes, sr.Info.Time, sr.Info.NPS)
-	return sr.BestMove
-
-	//err = a.game.Move(move)
-	//if err != nil {
-	//	log.Fatalln(err)
-	//}
-	//moves := a.game.Moves()
-	//lastMove := moves[len(moves)-1]
-	//moveStr := enc.Encode(prevPos, lastMove)
-	//
-	//fmt.Println(a.prompt(), moveStr)
-	//return moveStr
+	return sr.BestMove, false
 }
 
-func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
+func (a *app) handleMyMove(ctx context.Context) {
 	fen, err := a.game.Position().MarshalText()
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	var myMove *chess.Move
-	var resigned bool
-	if a.engine != "" {
-		myMove = a.moveFromEngine(ctx)
-	} else {
-		myMove, resigned = a.moveFromReader(ctx, userIn)
-	}
+	myMove, resigned := a.mover.choose(ctx)
 	if ctx.Err() != nil {
 		return
+	}
+
+	if resigned {
+		err = a.ch.Publish(ctx, a.gameID, msg{
+			Resigned: resigned,
+			Colour:   int(a.colour),
+			MoveNum:  a.moveNo,
+			NextFEN:  string(fen),
+		})
+		if err != nil {
+			log.Fatalln(err)
+		}
+		return
+	}
+	alg := algebraicNotation.Encode(a.game.Position(), myMove)
+	err = a.game.Move(myMove)
+	if err != nil {
+		log.Fatalln(err)
 	}
 
 	fmt.Println(a.game.Position().Board().Draw())
@@ -331,12 +379,15 @@ func (a *app) handleMyMove(ctx context.Context, userIn *bufio.Reader) {
 		log.Fatalln(err)
 	}
 
+	uciMove := uciNotation.Encode(a.game.Position(), myMove)
+
 	err = a.ch.Publish(ctx, a.gameID, msg{
-		Move:    myMove,
-		Colour:  int(a.colour),
-		MoveNum: a.moveNo,
-		FEN:     string(fen),
-		NextFEN: string(nextFen),
+		Move:      uciMove,
+		Algebriac: alg,
+		Resigned:  resigned,
+		Colour:    int(a.colour),
+		MoveNum:   a.moveNo,
+		NextFEN:   string(nextFen),
 	})
 	if err != nil {
 		log.Fatalln(err)
