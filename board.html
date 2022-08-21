@@ -3,18 +3,22 @@
 <head>
     <meta charset="utf-8"/>
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
-    <title>chessboardjs Example #1000 - Empty Board</title>
-    <base href="../"/>
+
+    <title>Ably Chess Viewer</title>
+
+    <base href="https://chessboardjs.com"/>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
           integrity="sha384-q94+BZtLrkL1/ohfjR8c6L+A6qzNH9R2hBLwyoAfu3i/WCvQjzL2RQJ3uNHDISdU" crossorigin="anonymous">
 </head>
 <body>
 
-<p>Ably chess viewer</p>
-
+<h1>Ably chess viewer</h1>
 <div id="myBoard" style="width: 400px"></div>
 <p>
 <div id="thismove"></div>
+</p>
+<p>
+<div id="result"></div>
 </p>
 
 <script src="https://cdn.ably.com/lib/ably.min-1.js"></script>
@@ -23,37 +27,49 @@
         integrity="sha384-8Vi8VHwn3vjQ9eUHUxex3JSN/NFqUg3QbPyX8kWyb93+8AC/pPWTzj+nHtbC5bxD"
         crossorigin="anonymous"></script>
 <script>
-    var board = Chessboard('myBoard');
-    board.position('start', false);
 
-    async function displayGame() {
-        const ably_key = sessionStorage.ABLY_KEY || prompt("Enter your ABLY_KEY");
-        if(/^[a-z0-9_\-.:]{32,64}$/i.test(ably_key)) sessionStorage.ABLY_KEY = ably_key;
-        const ably = new Ably.Realtime.Promise(ably_key);
-        await ably.connection.once('connected');
-        console.log('Connected to Ably!');
+    let apiKey = sessionStorage.ABLY_API_KEY || "";
+    const re = /^[0-9a-z_\-:\.]{18,64}$/i;
 
-        const channel = ably.channels.get('[?rewind=1]game1');
-        await channel.subscribe('game1', (message) => {
-            var d = message.data;
-
-            board.position(d.next_FEN, true);
-            console.log('got: ' + d.FEN)
-            console.log('got: ' + d.move)
-            console.log('got: ' + d.colour)
-            var text = $("#thismove").html();
-            if (d.colour == 1) {
-                text = d.move_num + ": " + message.data.move;
-            } else {
-                text = text + " " + d.move
-            }
-            $("#thismove").html(text);
-
-        });
+    while (!re.test(`${apiKey}`)) {
+        sessionStorage.ABLY_API_KEY = apiKey = prompt(`
+        Enter your Ably API key:
+        Get one for FREE from: https://ably.com/sign-up`);
     }
 
-    displayGame()
+    (async (board, key) => {
+        board.position("start", false);
+
+        const ably = new Ably.Realtime.Promise(key);
+        await ably.connection.once("connected");
+
+        console.log("Connected to Ably!");
+
+        const channel = ably.channels.get("[?rewind=1]game1");
+        channel.subscribe("game1", ({data}) => {
+            const {move, move_num, FEN, next_FEN, colour, result} = data;
+
+            board.position(next_FEN, true);
+            console.log("got: ", FEN);
+            console.log("got: ", move);
+            console.log("got: ", result);
+            let text = $("#thismove").html();
+            if (colour == 1 && (move_num % 10 == 1)) {
+                // new game
+                text = "";
+            }
+            if (colour == 1) {
+                text = `${text}${move_num}: ${move}`;
+            } else {
+                text = `${text} ${move}<br>`;
+            }
+
+            $("#thismove").html(text);
+            $("#result").html(result);
+        });
+    })(Chessboard("myBoard"), apiKey);
 
 </script>
+
 </body>
 </html>

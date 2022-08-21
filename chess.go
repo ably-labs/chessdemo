@@ -57,6 +57,7 @@ type msg struct {
 	MoveNum   int    `json:"move_num"`
 	Colour    int    `json:"colour"`
 	NextFEN   string `json:"next_FEN"`
+  Result  string `json:"result"`
 }
 
 var (
@@ -379,6 +380,11 @@ func (a *app) handleMyMove(ctx context.Context) {
 		log.Fatalln(err)
 	}
 
+  result := ""
+	if a.game.Outcome() != chess.NoOutcome {
+		result = fmt.Sprintf("%s %s", a.game.Outcome(), a.game.Method().String())
+	}
+
 	uciMove := uciNotation.Encode(a.game.Position(), myMove)
 
 	err = a.ch.Publish(ctx, a.gameID, msg{
@@ -388,6 +394,7 @@ func (a *app) handleMyMove(ctx context.Context) {
 		Colour:    int(a.colour),
 		MoveNum:   a.moveNo,
 		NextFEN:   string(nextFen),
+		Result:  result,
 	})
 	if err != nil {
 		log.Fatalln(err)
