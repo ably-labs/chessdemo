@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/browser"
 	"io"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path"
@@ -32,6 +33,7 @@ type app struct {
 	colour           chess.Color
 	userID           string
 	engine           string
+	random           bool
 	mover            mover
 	engMoveTime      time.Duration
 	isSpectator      bool
@@ -190,9 +192,13 @@ func (a *app) playGame(ctx context.Context) {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	if a.engine != "" {
+	switch {
+	case a.engine != "":
 		a.mover = a.startEngine()
-	} else {
+	case a.random:
+		rand.Seed(time.Now().UnixMilli())
+		a.mover = randomMover{a}
+	default:
 		a.mover = a.newReaderInput(os.Stdin)
 	}
 	defer a.mover.close()
@@ -258,6 +264,18 @@ type mover interface {
 	choose(ctx context.Context) (*chess.Move, bool)
 	close()
 }
+
+type randomMover struct {
+	a *app
+}
+
+func (r randomMover) choose(_ context.Context) (*chess.Move, bool) {
+	moves := r.a.game.ValidMoves()
+	n := rand.Intn(len(moves))
+	return moves[n], false
+}
+
+func (r randomMover) close() {}
 
 type readerInput struct {
 	userIn *bufio.Reader
@@ -329,7 +347,7 @@ func (e *engineInput) close() {
 	e.engine.Close()
 }
 
-func (e *engineInput) choose(ctx context.Context) (*chess.Move, bool) {
+func (e *engineInput) choose(_ context.Context) (*chess.Move, bool) {
 
 	prevPos := e.a.game.Position()
 	cmdPos := uci.CmdPosition{Position: prevPos}
@@ -485,6 +503,7 @@ func main() {
 	flag.StringVar(&a.userID, "name", "", "your name")
 	flag.StringVar(&a.gameID, "game", "game1", "game name")
 	flag.StringVar(&a.engine, "engine", "", "run UCI engine")
+	flag.BoolVar(&a.random, "rand", false, "generate random moves")
 	flag.DurationVar(&a.engMoveTime, "time", 500*time.Millisecond, "how much time to allow engine to make each move")
 	flag.BoolVar(&a.isSpectator, "watch", false, "watch game")
 	flag.BoolVar(&a.drawSVG, "svg", false, "draw SVG of each move")
