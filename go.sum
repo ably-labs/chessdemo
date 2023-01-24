@@ -1,5 +1,5 @@
-github.com/ably/ably-go v1.2.12-0.20230111183706-fd30ed235b90 h1:AByeOttRA8V3WvArLWj6o9wF+O2Nt1LgNww9N6BEd3Y=
-github.com/ably/ably-go v1.2.12-0.20230111183706-fd30ed235b90/go.mod h1:SG+CP0CGRGh3ot3rxPj7131jjwwzNsl3raHI8QSYLBw=
+github.com/ably/ably-go v1.2.12-0.20230124105919-811881f269f2 h1:507IB80vM7tksZttXQszEhrYonR5942jH0bpmggy+TU=
+github.com/ably/ably-go v1.2.12-0.20230124105919-811881f269f2/go.mod h1:SG+CP0CGRGh3ot3rxPj7131jjwwzNsl3raHI8QSYLBw=
 github.com/ajstarks/svgo v0.0.0-20200320125537-f189e35d30ca h1:kWzLcty5V2rzOqJM7Tp/MfSX0RMSI1x4IOLApEefYxA=
 github.com/ajstarks/svgo v0.0.0-20200320125537-f189e35d30ca/go.mod h1:K08gAheRH3/J6wwsYMMT4xOr94bZjxIelGM0+d/wbFw=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=

@@ -71,7 +71,7 @@ func (a *app) watchGame(ctx context.Context) {
 
 	done := make(chan bool)
 	nMove := 0
-	unsub, err := a.ch.SubscribeOf(ctx, a.gameID, func(message *ably.MessageOf[msg]) {
+	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.MessageOf[msg], _ error) {
 		nMove++
 		m := message.Data
 		moved := false
@@ -173,7 +173,7 @@ func (a *app) playGame(ctx context.Context) {
 	var unsub func()
 	go func() {
 		var err error
-		unsub, err = a.ch.SubscribeOf(ctx, a.gameID, func(message *ably.MessageOf[msg]) {
+		unsub, err = a.ch.Subscribe(ctx, a.gameID, func(message *ably.MessageOf[msg], _ error) {
 			if message.ClientID != a.userID {
 				waitChan <- message.Data
 			}
@@ -365,7 +365,7 @@ func (a *app) handleMyMove(ctx context.Context) {
 	}
 
 	if resigned {
-		err = a.ch.PublishOf(ctx, a.gameID, msg{
+		err = a.ch.Publish(ctx, a.gameID, msg{
 			Resigned: resigned,
 			Colour:   int(a.colour),
 			MoveNum:  a.moveNo,
@@ -395,7 +395,7 @@ func (a *app) handleMyMove(ctx context.Context) {
 
 	uciMove := uciNotation.Encode(a.game.Position(), myMove)
 
-	err = a.ch.PublishOf(ctx, a.gameID, msg{
+	err = a.ch.Publish(ctx, a.gameID, msg{
 		Move:      uciMove,
 		Algebriac: alg,
 		Resigned:  resigned,

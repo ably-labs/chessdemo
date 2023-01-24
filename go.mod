@@ -3,7 +3,7 @@ module github.com/ably-labs/chessdemo
 go 1.19
 
 require (
-	github.com/ably/ably-go v1.2.12-0.20230111183706-fd30ed235b90
+	github.com/ably/ably-go v1.2.12-0.20230124105919-811881f269f2
 	github.com/notnil/chess v1.8.0
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8
 	github.com/stretchr/testify v1.7.2
