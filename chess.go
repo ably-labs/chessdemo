@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/ably/ably-go/ably"
@@ -48,7 +47,7 @@ type app struct {
 	gameID string
 	moveNo int
 	client *ably.Realtime
-	ch     *ably.RealtimeChannel
+	ch     *ably.RealtimeChannelOf[msg]
 	nShow  int
 }
 
@@ -68,13 +67,13 @@ var (
 )
 
 func (a *app) watchGame(ctx context.Context) {
-	a.ch = a.client.Channels.Get("[?rewind=1]" + a.gameID)
+	a.ch = ably.GetChannelOf[msg](a.client, "[?rewind=1]"+a.gameID)
 
 	done := make(chan bool)
 	nMove := 0
-	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
+	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.MessageOf[msg], _ error) {
 		nMove++
-		m := decodeMsg(message)
+		m := message.Data
 		moved := false
 		if nMove == 1 {
 			fen, err := chess.FEN(m.NextFEN)
@@ -169,29 +168,20 @@ func handleOpponentMove(ctx context.Context, game *chess.Game, waitCh chan msg) 
 
 }
 
-func decodeMsg(am *ably.Message) msg {
-	var msg msg
-	m, ok := am.Data.(string)
-	if !ok {
-		log.Fatalf("message.Data is not a string, but a %T", am.Data)
-	}
-	err := json.Unmarshal([]byte(m), &msg)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	return msg
-}
-
 func (a *app) playGame(ctx context.Context) {
 	waitChan := make(chan msg)
-	unsub, err := a.ch.Subscribe(ctx, a.gameID, func(message *ably.Message) {
-		if message.ClientID != a.userID {
-			waitChan <- decodeMsg(message)
+	var unsub func()
+	go func() {
+		var err error
+		unsub, err = a.ch.Subscribe(ctx, a.gameID, func(message *ably.MessageOf[msg], _ error) {
+			if message.ClientID != a.userID {
+				waitChan <- message.Data
+			}
+		})
+		if err != nil {
+			log.Fatalln(err)
 		}
-	})
-	if err != nil {
-		log.Fatalln(err)
-	}
+	}()
 	switch {
 	case a.engine != "":
 		a.mover = a.startEngine()
@@ -521,7 +511,8 @@ func main() {
 	var err error
 	a.client, err = ably.NewRealtime(
 		ably.WithKey(key),
-		ably.WithClientID(a.userID))
+		ably.WithClientID(a.userID),
+		ably.WithEchoMessages(false))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -547,7 +538,7 @@ func main() {
 		return
 	}
 
-	a.ch = a.client.Channels.Get(a.gameID)
+	a.ch = ably.GetChannelOf[msg](a.client, a.gameID)
 
 	cancelSubscription, err := a.ch.Presence.SubscribeAll(ctx, func(message *ably.PresenceMessage) {
 		a.handlePresenceEvent(message, cancel)
